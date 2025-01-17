@@ -1,0 +1,49 @@
+.panel {
+    opacity: 1;
+    -unity-background-image-tint-color: rgb(56, 56, 56);
+    background-color: rgb(0, 0, 0);
+}
+
+.menu {
+    align-items: center;
+    opacity: 1;
+}
+
+.unity-button {
+    border-top-left-radius: 15px;
+    border-top-right-radius: 15px;
+    border-bottom-right-radius: 15px;
+    border-bottom-left-radius: 15px;
+    font-size: 40px;
+    transition-duration: 0.35s;
+    background-color: rgb(238, 255, 253);
+    border-left-color: rgb(101, 33, 33);
+    border-right-color: rgb(101, 33, 33);
+    border-top-color: rgb(101, 33, 33);
+    border-bottom-color: rgb(101, 33, 33);
+    border-top-width: 10px;
+    border-right-width: 10px;
+    border-bottom-width: 10px;
+    border-left-width: 10px;
+    flex-grow: 0.2;
+    color: rgb(0, 0, 0);
+    align-items: center;
+    justify-content: flex-start;
+    width: 246px;
+    height: 48px;
+    margin-top: 10px;
+    margin-right: 10px;
+    margin-bottom: 10px;
+    margin-left: 10px;
+    -unity-font-style: bold;
+    align-self: center;
+}
+
+.unity-button:hover {
+    scale: 1.1 1.1;
+    transition-property: all, ignored;
+    transition-duration: 0.25s, 0s;
+    transition-timing-function: ease, ease;
+    transition-delay: 0s, 0s;
+    color: rgb(0, 0, 0);
+}
