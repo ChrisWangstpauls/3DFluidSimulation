@@ -8,9 +8,9 @@ using Unity.Burst;
 public class FluidSimulation : MonoBehaviour
 {
 	[Header("Simulation Parameters")]
-	public int size = 100;
-	public float diffusion = 0.0001f;
-	public float viscosity = 0.0001f;
+	public int size = 300;
+	public float diffusion = 0.00005f;
+	public float viscosity = 0.00005f;
 	public float timeStep = 0.1f;
 
 	[Header("Visualization")]
@@ -20,16 +20,17 @@ public class FluidSimulation : MonoBehaviour
 	public bool useGradient = false;
 	public Gradient colorGradient;
 
-	private float[] density;
-	private float[] velocityX;
-	private float[] velocityY;
-	private float[] velocityX0;
-	private float[] velocityY0;
-
 	private Material fluidMaterial;
 	private Texture2D fluidTexture;
 	private Camera mainCamera;
 	private Vector3[] quadCorners = new Vector3[4];
+
+	private NativeArray<float> density;
+	private NativeArray<float> velocityX;
+	private NativeArray<float> velocityY;
+	private NativeArray<float> velocityX0;
+	private NativeArray<float> velocityY0;
+
 
 	void OnValidate()
 	{
@@ -42,13 +43,19 @@ public class FluidSimulation : MonoBehaviour
 
 	void Start()
 	{
-		// Initialize arrays
+		//initialise arrays
 		int totalSize = size * size;
-		density = new float[totalSize];
-		velocityX = new float[totalSize];
-		velocityY = new float[totalSize];
-		velocityX0 = new float[totalSize];
-		velocityY0 = new float[totalSize];
+		NativeArray<float> density = new NativeArray<float>(size * size, Allocator.Persistent);
+		velocityX = new NativeArray<float>(totalSize, Allocator.Persistent);
+		velocityY = new NativeArray<float>(totalSize, Allocator.Persistent);
+		velocityX0 = new NativeArray<float>(totalSize, Allocator.Persistent);
+		velocityY0 = new NativeArray<float>(totalSize, Allocator.Persistent);
+
+
+		fluidTexture = new Texture2D(size, size);
+		fluidTexture.filterMode = FilterMode.Point;
+
+		mainCamera = Camera.main;
 
 		// Create visualization texture
 		fluidTexture = new Texture2D(size, size);
@@ -110,6 +117,7 @@ public class FluidSimulation : MonoBehaviour
 
 		Simulate();
 		UpdateVisualization();
+
 	}
 
 	Vector2 GetMousePositionInGrid()
@@ -138,20 +146,18 @@ public class FluidSimulation : MonoBehaviour
 	{
 		Diffuse(1, velocityX0, velocityX, viscosity);
 		Diffuse(2, velocityY0, velocityY, viscosity);
-
 		Project(velocityX0, velocityY0, velocityX, velocityY);
-
 		Advect(1, velocityX, velocityX0, velocityX0, velocityY0);
 		Advect(2, velocityY, velocityY0, velocityX0, velocityY0);
-
 		Project(velocityX, velocityY, velocityX0, velocityY0);
 	}
 
 	void DensityStep()
 	{
-		float[] densityTemp = new float[size * size];
+		NativeArray<float> densityTemp = new NativeArray<float>(size * size, Allocator.Temp);
 		Diffuse(0, densityTemp, density, diffusion);
 		Advect(0, density, densityTemp, velocityX, velocityY);
+		densityTemp.Dispose();
 	}
 
 	void AddDensity(float x, float y, float amount)
@@ -171,13 +177,13 @@ public class FluidSimulation : MonoBehaviour
 		velocityY[IX(i, j)] += amountY;
 	}
 
-	void Diffuse(int b, float[] x, float[] x0, float diff)
+	void Diffuse(int b, NativeArray<float> x, NativeArray<float> x0, float diff)
 	{
 		float a = timeStep * diff * (size - 2) * (size - 2);
 		LinearSolve(b, x, x0, a, 1 + 6 * a);
 	}
 
-	void LinearSolve(int b, float[] x, float[] x0, float a, float c)
+	void LinearSolve(int b, NativeArray<float> x, NativeArray<float> x0, float a, float c)
 	{
 		for (int k = 0; k < 20; k++)
 		{
@@ -191,11 +197,10 @@ public class FluidSimulation : MonoBehaviour
 					)) / c;
 				}
 			}
-			SetBoundary(b, x);
+					
 		}
 	}
-
-	void Project(float[] velocX, float[] velocY, float[] p, float[] div)
+	void Project(NativeArray<float> velocX, NativeArray<float> velocY, NativeArray<float> p, NativeArray<float> div)
 	{
 		for (int i = 1; i < size - 1; i++)
 		{
@@ -208,59 +213,35 @@ public class FluidSimulation : MonoBehaviour
 				p[IX(i, j)] = 0;
 			}
 		}
-
-		SetBoundary(0, div);
-		SetBoundary(0, p);
 		LinearSolve(0, p, div, 1, 6);
-
-		for (int i = 1; i < size - 1; i++)
-		{
-			for (int j = 1; j < size - 1; j++)
-			{
-				velocX[IX(i, j)] -= 0.5f * (p[IX(i + 1, j)] - p[IX(i - 1, j)]) * size;
-				velocY[IX(i, j)] -= 0.5f * (p[IX(i, j + 1)] - p[IX(i, j - 1)]) * size;
-			}
-		}
-
-		SetBoundary(1, velocX);
-		SetBoundary(2, velocY);
 	}
 
-	void Advect(int b, float[] d, float[] d0, float[] velocX, float[] velocY)
+	void Advect(int b, NativeArray<float> d, NativeArray<float> d0, NativeArray<float> velocX, NativeArray<float> velocY)
 	{
 		float dt0 = timeStep * (size - 2);
-
 		for (int i = 1; i < size - 1; i++)
 		{
 			for (int j = 1; j < size - 1; j++)
 			{
 				float x = i - dt0 * velocX[IX(i, j)];
 				float y = j - dt0 * velocY[IX(i, j)];
-
-				if (x < 0.5f) x = 0.5f;
-				if (x > size - 1.5f) x = size - 1.5f;
+				x = Mathf.Clamp(x, 0.5f, size - 1.5f);
+				y = Mathf.Clamp(y, 0.5f, size - 1.5f);
 				int i0 = (int)x;
-				int i1 = i0 + 1;
-
-				if (y < 0.5f) y = 0.5f;
-				if (y > size - 1.5f) y = size - 1.5f;
 				int j0 = (int)y;
+				int i1 = i0 + 1;
 				int j1 = j0 + 1;
-
 				float s1 = x - i0;
-				float s0 = 1 - s1;
 				float t1 = y - j0;
+				float s0 = 1 - s1;
 				float t0 = 1 - t1;
-
 				d[IX(i, j)] = s0 * (t0 * d0[IX(i0, j0)] + t1 * d0[IX(i0, j1)]) +
 							  s1 * (t0 * d0[IX(i1, j0)] + t1 * d0[IX(i1, j1)]);
 			}
 		}
-
-		SetBoundary(b, d);
 	}
 
-	void SetBoundary(int b, float[] x)
+	void SetBoundary(int b, NativeArray<float> x)
 	{
 		for (int i = 1; i < size - 1; i++)
 		{
@@ -281,34 +262,28 @@ public class FluidSimulation : MonoBehaviour
 		return x + y * size;
 	}
 
+
 	void UpdateVisualization()
 	{
 		Color[] colors = new Color[size * size];
-
 		for (int i = 0; i < size; i++)
 		{
 			for (int j = 0; j < size; j++)
 			{
 				float d = density[IX(i, j)] * colorIntensity;
-				if (useGradient)
-				{
-					// Use gradient evaluation (d is clamped to 0-1 range)
-					colors[IX(i, j)] = colorGradient.Evaluate(Mathf.Clamp01(d));
-				}
-				else
-				{
-					// Use single color with varying intensity
-					colors[IX(i, j)] = new Color(
-						fluidColor.r * d,
-						fluidColor.g * d,
-						fluidColor.b * d,
-						fluidColor.a
-					);
-				}
+				colors[IX(i, j)] = fluidColor * d;
 			}
 		}
-
 		fluidTexture.SetPixels(colors);
 		fluidTexture.Apply();
+	}
+
+	private void OnDestroy()
+	{
+		if (density.IsCreated) density.Dispose();
+		if (velocityX.IsCreated) velocityX.Dispose();
+		if (velocityY.IsCreated) velocityY.Dispose();
+		if (velocityX0.IsCreated) velocityX0.Dispose();
+		if (velocityY0.IsCreated) velocityY0.Dispose();
 	}
 }

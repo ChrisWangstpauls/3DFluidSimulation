@@ -43,6 +43,7 @@ public class MainMenuEvents : MonoBehaviour
 
 	private void AllButtonsClick(ClickEvent evt)
 	{
-		Debug.Log("Test");
+		// Hides the menu by disabling the rootVisualElement
+		_document.rootVisualElement.style.display = DisplayStyle.None;
 	}
 }
