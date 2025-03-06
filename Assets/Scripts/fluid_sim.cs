@@ -7,7 +7,6 @@ using Unity.Burst;
 
 public class FluidSimulation : MonoBehaviour
 {
-
 	[Header("Simulation Parameters")]
 	[Range(32, 512)]
 	public int size = 128;
@@ -20,12 +19,27 @@ public class FluidSimulation : MonoBehaviour
 	public float timeStep = 0.1f;
 	public bool autoAdjustParameters = true;
 
+	[Header("Center Source")]
+	public bool enableCenterSource = false;
+	[Range(1f, 500f)]
+	public float centerSourceStrength = 100f;
+	public bool centerSourceEmitsVelocity = false;
+	[Range(0f, 360f)]
+	public float centerSourceDirection = 0f;
+	[Range(1f, 50f)]
+	public float centerSourceVelocity = 10f;
+	[Range(0.1f, 5f)]
+	public float centerSourceRadius = 1f;
+	[Range(0.1f, 5f)]
+	public float centerSourcePulseRate = 1f;
+	public bool centerSourcePulsing = false;
+
 	[Header("Visualization")]
-	public Color fluidColor = Color.white;
+	public Color fluidcolour = Color.white;
 	[Range(0f, 1f)]
-	public float colorIntensity = 1f;
+	public float colourIntensity = 1f;
 	public bool useGradient = false;
-	public Gradient colorGradient;
+	public Gradient colourGradient;
 
 	private float[] density;
 	private float[] velocityX;
@@ -36,6 +50,7 @@ public class FluidSimulation : MonoBehaviour
 	private int currentSize;
 	private float cellSize;
 	private float dtScale;
+	private float elapsedTime = 0f;
 
 	private Material fluidMaterial;
 	private Texture2D fluidTexture;
@@ -51,14 +66,20 @@ public class FluidSimulation : MonoBehaviour
 		if (previousSize != size || previousResolutionMultiplier != resolutionMultiplier)
 		{
 			// Only reinitialize if we've already started
-			if (fluidTexture != null) { ResetSimulation(); }
+			if (fluidTexture != null)
+			{
+				ResetSimulation();
+			}
 
 			previousSize = size;
 			previousResolutionMultiplier = resolutionMultiplier;
 		}
 
 		// Update visualization when parameters change in editor
-		if (fluidTexture != null) { UpdateVisualization(); }
+		if (fluidTexture != null)
+		{
+			UpdateVisualization();
+		}
 	}
 
 	void Start()
@@ -66,13 +87,13 @@ public class FluidSimulation : MonoBehaviour
 		ResetSimulation();
 
 		// Initialize default gradient if none is set
-		if (colorGradient.Equals(new Gradient()))
+		if (colourGradient.Equals(new Gradient()))
 		{
-			GradientColorKey[] colorKeys = new GradientColorKey[2];
-			colorKeys[0].color = Color.blue;
-			colorKeys[0].time = 0.0f;
-			colorKeys[1].color = Color.red;
-			colorKeys[1].time = 1.0f;
+			GradientColorKey[] colourKeys = new GradientColorKey[2];
+			colourKeys[0].color = Color.blue;
+			colourKeys[0].time = 0.0f;
+			colourKeys[1].color = Color.red;
+			colourKeys[1].time = 1.0f;
 
 			GradientAlphaKey[] alphaKeys = new GradientAlphaKey[2];
 			alphaKeys[0].alpha = 1.0f;
@@ -80,7 +101,7 @@ public class FluidSimulation : MonoBehaviour
 			alphaKeys[1].alpha = 1.0f;
 			alphaKeys[1].time = 1.0f;
 
-			colorGradient.SetKeys(colorKeys, alphaKeys);
+			colourGradient.SetKeys(colourKeys, alphaKeys);
 		}
 	}
 
@@ -150,6 +171,14 @@ public class FluidSimulation : MonoBehaviour
 
 	void Update()
 	{
+		elapsedTime += Time.deltaTime;
+
+		// Process center source if enabled
+		if (enableCenterSource)
+		{
+			UpdateCenterSource();
+		}
+
 		// Add forces based on mouse input
 		if (Input.GetMouseButton(0))
 		{
@@ -169,6 +198,59 @@ public class FluidSimulation : MonoBehaviour
 
 		Simulate();
 		UpdateVisualization();
+	}
+
+	void UpdateCenterSource()
+	{
+		// Get center position of the grid
+		float centerX = currentSize * 0.5f;
+		float centerY = currentSize * 0.5f;
+
+		// Calculate effective strength for pulsing if enabled
+		float effectiveStrength = centerSourceStrength;
+		if (centerSourcePulsing)
+		{
+			// Create pulsing effect using sine wave
+			float pulseScale = Mathf.Abs(Mathf.Sin(elapsedTime * centerSourcePulseRate * Mathf.PI));
+			effectiveStrength *= pulseScale;
+		}
+
+		// Adjust strength based on resolution
+		effectiveStrength *= resolutionMultiplier;
+
+		// Apply density to center with radius
+		float radiusInCells = centerSourceRadius * resolutionMultiplier;
+
+		for (int i = Mathf.Max(0, Mathf.FloorToInt(centerX - radiusInCells));
+			 i <= Mathf.Min(currentSize - 1, Mathf.CeilToInt(centerX + radiusInCells)); i++)
+		{
+			for (int j = Mathf.Max(0, Mathf.FloorToInt(centerY - radiusInCells));
+				 j <= Mathf.Min(currentSize - 1, Mathf.CeilToInt(centerY + radiusInCells)); j++)
+			{
+				// Calculate distance from center point
+				float distSq = (i - centerX) * (i - centerX) + (j - centerY) * (j - centerY);
+				float dist = Mathf.Sqrt(distSq);
+
+				// Only add density within radius
+				if (dist <= radiusInCells)
+				{
+					// Reduce strength as we get farther from center (linear falloff)
+					float falloff = 1.0f - (dist / radiusInCells);
+					AddDensity(i, j, effectiveStrength * falloff);
+
+					// Add velocity if enabled
+					if (centerSourceEmitsVelocity)
+					{
+						// Convert direction angle to velocity components
+						float angleRad = centerSourceDirection * Mathf.Deg2Rad;
+						float vx = Mathf.Cos(angleRad) * centerSourceVelocity * resolutionMultiplier * falloff;
+						float vy = Mathf.Sin(angleRad) * centerSourceVelocity * resolutionMultiplier * falloff;
+
+						AddVelocity(i, j, vx, vy);
+					}
+				}
+			}
+		}
 	}
 
 	Vector2 GetMousePositionInGrid()
@@ -331,7 +413,7 @@ public class FluidSimulation : MonoBehaviour
 			x[IX(0, i)] = b == 1 ? -x[IX(1, i)] : x[IX(1, i)];
 			x[IX(currentSize - 1, i)] = b == 1 ? -x[IX(currentSize - 2, i)] : x[IX(currentSize - 2, i)];
 			x[IX(i, 0)] = b == 2 ? -x[IX(i, 1)] : x[IX(i, 1)];
-			x[IX(i, currentSize - 1)] = b == 2 ? -x[IX(i, size - 2)] : x[IX(i, currentSize - 2)];
+			x[IX(i, currentSize - 1)] = b == 2 ? -x[IX(i, currentSize - 2)] : x[IX(i, currentSize - 2)];
 		}
 
 		x[IX(0, 0)] = 0.5f * (x[IX(1, 0)] + x[IX(0, 1)]);
@@ -347,35 +429,57 @@ public class FluidSimulation : MonoBehaviour
 
 	void UpdateVisualization()
 	{
-		Color[] colors = new Color[currentSize * currentSize];
+		Color[] colours = new Color[currentSize * currentSize];
 
 		for (int i = 0; i < currentSize; i++)
 		{
 			for (int j = 0; j < currentSize; j++)
 			{
-				float d = density[IX(i, j)] * colorIntensity;
+				float d = density[IX(i, j)] * colourIntensity;
+
 				if (useGradient)
 				{
 					// Use gradient evaluation (d is clamped to 0-1 range)
-					colors[IX(i, j)] = colorGradient.Evaluate(Mathf.Clamp01(d));
+					colours[IX(i, j)] = colourGradient.Evaluate(Mathf.Clamp01(d));
 				}
 				else
 				{
-					// Use single color with varying intensity
-					colors[IX(i, j)] = new Color(
-						fluidColor.r * d,
-						fluidColor.g * d,
-						fluidColor.b * d,
-						fluidColor.a
+					// Use single colour with varying intensity
+					Color basecolour = fluidcolour;
+						
+					// Check if we're near the center source and it's enabled
+					if (enableCenterSource)
+					{
+						float centerX = currentSize * 0.5f;
+						float centerY = currentSize * 0.5f;
+						float radiusInCells = centerSourceRadius * resolutionMultiplier;
+
+						float distSq = (i - centerX) * (i - centerX) + (j - centerY) * (j - centerY);
+						float dist = Mathf.Sqrt(distSq);
+
+						// Mix the center source colour based on proximity
+						if (dist <= radiusInCells)
+						{
+							float falloff = 1.0f - (dist / radiusInCells);
+							basecolour = Color.Lerp(fluidcolour, fluidcolour, falloff * 0.7f);
+						}
+					}
+
+					colours[IX(i, j)] = new Color(
+						basecolour.r * d,
+						basecolour.g * d,
+						basecolour.b * d,
+						basecolour.a
 					);
 				}
 			}
 		}
 
-		fluidTexture.SetPixels(colors);
+		fluidTexture.SetPixels(colours);
 		fluidTexture.Apply();
 	}
 
+	// Helper method for debugging resolution
 	public string GetCurrentResolution()
 	{
 		return $"{currentSize}x{currentSize} (Base: {size}, Multiplier: {resolutionMultiplier:F2})";
