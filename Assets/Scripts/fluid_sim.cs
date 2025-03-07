@@ -19,20 +19,26 @@ public class FluidSimulation : MonoBehaviour
 	public float timeStep = 0.1f;
 	public bool autoAdjustParameters = true;
 
-	[Header("Center Source")]
-	public bool enableCenterSource = false;
+	[Header("Customizable Source")]
+	public bool enableCustomSource = false;
 	[Range(1f, 500f)]
-	public float centerSourceStrength = 100f;
-	public bool centerSourceEmitsVelocity = false;
+	public float sourceStrength = 100f;
+	public bool sourceEmitsVelocity = false;
 	[Range(0f, 360f)]
-	public float centerSourceDirection = 0f;
+	public float sourceDirection = 0f;
 	[Range(1f, 50f)]
-	public float centerSourceVelocity = 10f;
+	public float sourceVelocity = 10f;
 	[Range(0.1f, 5f)]
-	public float centerSourceRadius = 1f;
+	public float sourceRadius = 1f;
 	[Range(0.1f, 5f)]
-	public float centerSourcePulseRate = 1f;
-	public bool centerSourcePulsing = false;
+	public float sourcePulseRate = 1f;
+	public bool sourcePulsing = false;
+	[Range(0f, 1f)]
+	public float sourcePositionX = 0.5f; // Normalized position (0-1)
+	[Range(0f, 1f)]
+	public float sourcePositionY = 0.5f; // Normalized position (0-1)
+	public bool moveSourceWithMouse = false;
+	public KeyCode sourcePositionKey = KeyCode.LeftShift; // Hold this key to position source with mouse
 
 	[Header("Visualization")]
 	public Color fluidcolour = Color.white;
@@ -40,6 +46,8 @@ public class FluidSimulation : MonoBehaviour
 	public float colourIntensity = 1f;
 	public bool useGradient = false;
 	public Gradient colourGradient;
+	public bool visualizeSourcePosition = true;
+	public Color sourcePositionColor = Color.yellow;
 
 	private float[] density;
 	private float[] velocityX;
@@ -173,14 +181,22 @@ public class FluidSimulation : MonoBehaviour
 	{
 		elapsedTime += Time.deltaTime;
 
-		// Process center source if enabled
-		if (enableCenterSource)
+		// Handle source positioning with mouse if enabled
+		if (moveSourceWithMouse && Input.GetKey(sourcePositionKey))
 		{
-			UpdateCenterSource();
+			Vector2 mousePos = GetMousePositionInGrid();
+			sourcePositionX = Mathf.Clamp01(mousePos.x / currentSize);
+			sourcePositionY = Mathf.Clamp01(mousePos.y / currentSize);
 		}
 
-		// Add forces based on mouse input
-		if (Input.GetMouseButton(0))
+		// Process custom source if enabled
+		if (enableCustomSource)
+		{
+			UpdateCustomSource();
+		}
+
+		// Add forces based on mouse input (only when not positioning the source)
+		if (Input.GetMouseButton(0) && !(moveSourceWithMouse && Input.GetKey(sourcePositionKey)))
 		{
 			Vector2 mousePos = GetMousePositionInGrid();
 			if (mousePos.x >= 0 && mousePos.x < currentSize && mousePos.y >= 0 && mousePos.y < currentSize)
@@ -200,35 +216,35 @@ public class FluidSimulation : MonoBehaviour
 		UpdateVisualization();
 	}
 
-	void UpdateCenterSource()
+	void UpdateCustomSource()
 	{
-		// Get center position of the grid
-		float centerX = currentSize * 0.5f;
-		float centerY = currentSize * 0.5f;
+		// Convert normalized position (0-1) to grid coordinates
+		float sourceX = sourcePositionX * currentSize;
+		float sourceY = sourcePositionY * currentSize;
 
 		// Calculate effective strength for pulsing if enabled
-		float effectiveStrength = centerSourceStrength;
-		if (centerSourcePulsing)
+		float effectiveStrength = sourceStrength;
+		if (sourcePulsing)
 		{
 			// Create pulsing effect using sine wave
-			float pulseScale = Mathf.Abs(Mathf.Sin(elapsedTime * centerSourcePulseRate * Mathf.PI));
+			float pulseScale = Mathf.Abs(Mathf.Sin(elapsedTime * sourcePulseRate * Mathf.PI));
 			effectiveStrength *= pulseScale;
 		}
 
 		// Adjust strength based on resolution
 		effectiveStrength *= resolutionMultiplier;
 
-		// Apply density to center with radius
-		float radiusInCells = centerSourceRadius * resolutionMultiplier;
+		// Apply density to source with radius
+		float radiusInCells = sourceRadius * resolutionMultiplier;
 
-		for (int i = Mathf.Max(0, Mathf.FloorToInt(centerX - radiusInCells));
-			 i <= Mathf.Min(currentSize - 1, Mathf.CeilToInt(centerX + radiusInCells)); i++)
+		for (int i = Mathf.Max(0, Mathf.FloorToInt(sourceX - radiusInCells));
+			 i <= Mathf.Min(currentSize - 1, Mathf.CeilToInt(sourceX + radiusInCells)); i++)
 		{
-			for (int j = Mathf.Max(0, Mathf.FloorToInt(centerY - radiusInCells));
-				 j <= Mathf.Min(currentSize - 1, Mathf.CeilToInt(centerY + radiusInCells)); j++)
+			for (int j = Mathf.Max(0, Mathf.FloorToInt(sourceY - radiusInCells));
+				 j <= Mathf.Min(currentSize - 1, Mathf.CeilToInt(sourceY + radiusInCells)); j++)
 			{
-				// Calculate distance from center point
-				float distSq = (i - centerX) * (i - centerX) + (j - centerY) * (j - centerY);
+				// Calculate distance from source point
+				float distSq = (i - sourceX) * (i - sourceX) + (j - sourceY) * (j - sourceY);
 				float dist = Mathf.Sqrt(distSq);
 
 				// Only add density within radius
@@ -239,12 +255,12 @@ public class FluidSimulation : MonoBehaviour
 					AddDensity(i, j, effectiveStrength * falloff);
 
 					// Add velocity if enabled
-					if (centerSourceEmitsVelocity)
+					if (sourceEmitsVelocity)
 					{
 						// Convert direction angle to velocity components
-						float angleRad = centerSourceDirection * Mathf.Deg2Rad;
-						float vx = Mathf.Cos(angleRad) * centerSourceVelocity * resolutionMultiplier * falloff;
-						float vy = Mathf.Sin(angleRad) * centerSourceVelocity * resolutionMultiplier * falloff;
+						float angleRad = sourceDirection * Mathf.Deg2Rad;
+						float vx = Mathf.Cos(angleRad) * sourceVelocity * resolutionMultiplier * falloff;
+						float vy = Mathf.Sin(angleRad) * sourceVelocity * resolutionMultiplier * falloff;
 
 						AddVelocity(i, j, vx, vy);
 					}
@@ -445,32 +461,28 @@ public class FluidSimulation : MonoBehaviour
 				else
 				{
 					// Use single colour with varying intensity
-					Color basecolour = fluidcolour;
-						
-					// Check if we're near the center source and it's enabled
-					if (enableCenterSource)
-					{
-						float centerX = currentSize * 0.5f;
-						float centerY = currentSize * 0.5f;
-						float radiusInCells = centerSourceRadius * resolutionMultiplier;
-
-						float distSq = (i - centerX) * (i - centerX) + (j - centerY) * (j - centerY);
-						float dist = Mathf.Sqrt(distSq);
-
-						// Mix the center source colour based on proximity
-						if (dist <= radiusInCells)
-						{
-							float falloff = 1.0f - (dist / radiusInCells);
-							basecolour = Color.Lerp(fluidcolour, fluidcolour, falloff * 0.7f);
-						}
-					}
-
+					Color baseColour = fluidcolour;
 					colours[IX(i, j)] = new Color(
-						basecolour.r * d,
-						basecolour.g * d,
-						basecolour.b * d,
-						basecolour.a
+						baseColour.r * d,
+						baseColour.g * d,
+						baseColour.b * d,
+						baseColour.a
 					);
+				}
+
+				// Visualize source position if enabled
+				if (visualizeSourcePosition && enableCustomSource)
+				{
+					float sourceX = sourcePositionX * currentSize;
+					float sourceY = sourcePositionY * currentSize;
+					float visualMarkerRadius = 3; // Size of the position marker in pixels
+
+					float distSq = (i - sourceX) * (i - sourceX) + (j - sourceY) * (j - sourceY);
+					if (distSq < visualMarkerRadius * visualMarkerRadius)
+					{
+						// Mark the source position with a distinct color
+						colours[IX(i, j)] = sourcePositionColor;
+					}
 				}
 			}
 		}
@@ -483,5 +495,18 @@ public class FluidSimulation : MonoBehaviour
 	public string GetCurrentResolution()
 	{
 		return $"{currentSize}x{currentSize} (Base: {size}, Multiplier: {resolutionMultiplier:F2})";
+	}
+
+	// Helper method to get the current source position	
+	public Vector2 GetSourcePosition()
+	{
+		return new Vector2(sourcePositionX * currentSize, sourcePositionY * currentSize);
+	}
+
+	// Helper method to manually set the source position using grid coordinates
+	public void SetSourcePosition(float x, float y)
+	{
+		sourcePositionX = Mathf.Clamp01(x / currentSize);
+		sourcePositionY = Mathf.Clamp01(y / currentSize);
 	}
 }

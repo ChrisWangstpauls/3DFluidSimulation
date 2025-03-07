@@ -152,16 +152,31 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   size: 64
+  physicalSize: 2
+  resolutionMultiplier: 2
   diffusion: 0.0001
   viscosity: 0.0001
   timeStep: 0.03
-  fluidColor: {r: 1, g: 1, b: 1, a: 1}
-  colorIntensity: 1
+  autoAdjustParameters: 1
+  enableCustomSource: 1
+  sourceStrength: 40
+  sourceEmitsVelocity: 1
+  sourceDirection: 0
+  sourceVelocity: 39.2
+  sourceRadius: 0.5
+  sourcePulseRate: 4.44
+  sourcePulsing: 0
+  sourcePositionX: 0.05
+  sourcePositionY: 0.5
+  moveSourceWithMouse: 1
+  sourcePositionKey: 304
+  fluidcolour: {r: 1, g: 1, b: 1, a: 1}
+  colourIntensity: 1
   useGradient: 1
-  colorGradient:
+  colourGradient:
     serializedVersion: 2
     key0: {r: 1, g: 1, b: 1, a: 1}
-    key1: {r: 0.8679245, g: 0.27839088, b: 0.27839088, a: 1}
+    key1: {r: 0, g: 0, b: 0, a: 1}
     key2: {r: 0, g: 0, b: 0, a: 0}
     key3: {r: 0, g: 0, b: 0, a: 0}
     key4: {r: 0, g: 0, b: 0, a: 0}
@@ -188,6 +203,8 @@ MonoBehaviour:
     m_ColorSpace: -1
     m_NumColorKeys: 2
     m_NumAlphaKeys: 2
+  visualizeSourcePosition: 0
+  sourcePositionColor: {r: 1, g: 0.034113742, b: 0.015686274, a: 1}
 --- !u!4 &49044249
 Transform:
   m_ObjectHideFlags: 0

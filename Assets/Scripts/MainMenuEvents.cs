@@ -5,45 +5,50 @@ using UnityEngine.UIElements;
 public class MainMenuEvents : MonoBehaviour
 {
     private UIDocument _document;
-
     private Button _button;
+	public KeyCode Exit = KeyCode.Escape;
 
-	private List<Button> _menubuttons = new List<Button>();
-    private void Start()
+	private void Start()
     {
         _document = GetComponent<UIDocument>();
 
-       // _button = _document.rootVisualElement.Q("EnterButton") as Button;
-	   // _button.RegisterCallback<ClickEvent>(OnPlayGameClick);
+        _button = _document.rootVisualElement.Q("EnterButton") as Button;
+	    _button.RegisterCallback<ClickEvent>(OnEnterButtonClick);
 
-		_menubuttons = _document.rootVisualElement.Query<Button>().ToList();
-
-		for (int i = 0; i < _menubuttons.Count; i++)
-		{
-			_menubuttons[i].RegisterCallback<ClickEvent>(AllButtonsClick);
-		}
+		_button = _document.rootVisualElement.Q("QuitButton") as Button;
+		_button.RegisterCallback<ClickEvent>(OnQuitButtonClick);
 	}
-
-	
-
-	private void OnDisable()
+	private void Update()
 	{
-        //_button.UnregisterCallback<ClickEvent>(OnPlayGameClick);
-
-		for (int i = 0; i < _menubuttons.Count; i++)
+		if (Input.GetKeyDown(Exit))
 		{
-			_menubuttons[i].UnregisterCallback<ClickEvent>(AllButtonsClick);
+			if (_document.rootVisualElement.style.display == DisplayStyle.None)
+			{
+				_document.rootVisualElement.style.display = DisplayStyle.Flex;
+			}
+			else
+			{
+				_document.rootVisualElement.style.display = DisplayStyle.None;
+			}
 		}
 	}
 
-	/*private void OnPlayGameClick(ClickEvent evt)
+	private void OnEnterButtonClick(ClickEvent evt)
     {
-        Debug.Log("Kill Yourself");
-    }*/
-
-	private void AllButtonsClick(ClickEvent evt)
-	{
-		// Hides the menu by disabling the rootVisualElement
+		// Hides menu
 		_document.rootVisualElement.style.display = DisplayStyle.None;
+	}
+
+	private void OnQuitButtonClick(ClickEvent evt)
+	{
+		// Closes application
+		Application.Quit();
+		Debug.Log("Application.Quit() called");
+
+		
+		//Temporary stop play mode in Unity editor
+		#if UNITY_EDITOR
+		UnityEditor.EditorApplication.isPlaying = false;
+		#endif
 	}
 }
