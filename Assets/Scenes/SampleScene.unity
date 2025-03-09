@@ -159,7 +159,7 @@ MonoBehaviour:
   timeStep: 0.03
   autoAdjustParameters: 1
   enableCustomSource: 1
-  sourceStrength: 40
+  sourceStrength: 35
   sourceEmitsVelocity: 1
   sourceDirection: 0
   sourceVelocity: 39.2
@@ -495,6 +495,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 12f513485fe19394eae6eeedaaff5528, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  Exit: 27
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0

@@ -46,6 +46,18 @@ public class FluidSimulation : MonoBehaviour
 	public float colourIntensity = 1f;
 	public bool useGradient = false;
 	public Gradient colourGradient;
+
+	// New visualization options
+	public enum ColorMode { SingleColor, Gradient, DensityBased }
+	public ColorMode colorMode = ColorMode.SingleColor;
+	public Color lowDensityColor = Color.blue;
+	public Color mediumDensityColor = Color.green;
+	public Color highDensityColor = Color.red;
+	[Range(0f, 500f)]
+	public float mediumDensityThreshold = 50f;
+	[Range(0f, 1000f)]
+	public float highDensityThreshold = 200f;
+
 	public bool visualizeSourcePosition = true;
 	public Color sourcePositionColor = Color.yellow;
 
@@ -451,24 +463,53 @@ public class FluidSimulation : MonoBehaviour
 		{
 			for (int j = 0; j < currentSize; j++)
 			{
-				float d = density[IX(i, j)] * colourIntensity;
+				float d = density[IX(i, j)];
+				float normalizedD = d * colourIntensity;
+				Color pixelColor;
 
-				if (useGradient)
+				// Apply different color modes
+				switch (colorMode)
 				{
-					// Use gradient evaluation (d is clamped to 0-1 range)
-					colours[IX(i, j)] = colourGradient.Evaluate(Mathf.Clamp01(d));
+					case ColorMode.DensityBased:
+						// Use different colors based on density thresholds
+						if (d < mediumDensityThreshold)
+						{
+							// Lerp between zero (black) and low density color
+							float t = d / mediumDensityThreshold;
+							pixelColor = Color.Lerp(Color.black, lowDensityColor, t);
+						}
+						else if (d < highDensityThreshold)
+						{
+							// Lerp between low and medium density colors
+							float t = (d - mediumDensityThreshold) / (highDensityThreshold - mediumDensityThreshold);
+							pixelColor = Color.Lerp(lowDensityColor, mediumDensityColor, t);
+						}
+						else
+						{
+							// Lerp between medium and high density colors
+							float t = Mathf.Min(1f, (d - highDensityThreshold) / highDensityThreshold);
+							pixelColor = Color.Lerp(mediumDensityColor, highDensityColor, t);
+						}
+						break;
+
+					case ColorMode.Gradient:
+						// Use gradient evaluation (normalizedD is clamped to 0-1 range)
+						pixelColor = colourGradient.Evaluate(Mathf.Clamp01(normalizedD));
+						break;
+
+					case ColorMode.SingleColor:
+					default:
+						// Use single colour with varying intensity
+						pixelColor = new Color(
+							fluidcolour.r * normalizedD,
+							fluidcolour.g * normalizedD,
+							fluidcolour.b * normalizedD,
+							fluidcolour.a
+						);
+						break;
 				}
-				else
-				{
-					// Use single colour with varying intensity
-					Color baseColour = fluidcolour;
-					colours[IX(i, j)] = new Color(
-						baseColour.r * d,
-						baseColour.g * d,
-						baseColour.b * d,
-						baseColour.a
-					);
-				}
+
+				colours[IX(i, j)] = pixelColor;
 
 				// Visualize source position if enabled
 				if (visualizeSourcePosition && enableCustomSource)
