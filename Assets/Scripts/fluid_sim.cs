@@ -47,8 +47,19 @@ public class FluidSimulation : MonoBehaviour
 	public bool useGradient = false;
 	public Gradient colourGradient;
 
+	[Header("Streamline Visualization")]
+	public bool showStreamlines = false;
+	[Range(1f, 5f)]
+	public int streamlineDensity = 4; // Controls how many cells are skipped
+	[Range(1f, 5f)]
+	public float streamlineScale = 1.0f; // Scales the length of the lines
+	[Range(0.5f, 3f)]
+	public float streamlineThickness = 1.0f;
+	private Texture2D streamlineTexture;
+
 	// New visualization options
-	public enum ColorMode { SingleColor, Gradient, DensityBased }
+
+	public enum ColorMode { SingleColor, Gradient, DensityBased, Streamlines }
 	public ColorMode colorMode = ColorMode.SingleColor;
 	public Color lowDensityColor = Color.blue;
 	public Color mediumDensityColor = Color.green;
@@ -187,6 +198,14 @@ public class FluidSimulation : MonoBehaviour
 		}
 
 		Debug.Log($"Fluid simulation reset with resolution: {currentSize}x{currentSize}, cell size: {cellSize}");
+
+		// Initialize streamline texture if needed
+		if (streamlineTexture != null)
+		{
+			Destroy(streamlineTexture);
+		}
+		streamlineTexture = new Texture2D(currentSize, currentSize, TextureFormat.RGBA32, false);
+		streamlineTexture.filterMode = FilterMode.Point;
 	}
 
 	void Update()
@@ -226,6 +245,15 @@ public class FluidSimulation : MonoBehaviour
 
 		Simulate();
 		UpdateVisualization();
+
+		Simulate();
+		UpdateVisualization();
+
+		// Added DrawStreamlines call if needed separately
+		if (showStreamlines && colorMode != ColorMode.Streamlines)
+		{
+			CombineTextures();
+		}
 	}
 
 	void UpdateCustomSource()
@@ -528,8 +556,164 @@ public class FluidSimulation : MonoBehaviour
 			}
 		}
 
+		// If streamlines are enabled, draw them
+		if (showStreamlines || colorMode == ColorMode.Streamlines)
+		{
+			DrawStreamlines();
+		}
+
 		fluidTexture.SetPixels(colours);
 		fluidTexture.Apply();
+
+		// If in streamline mode, combine the textures
+		if (colorMode == ColorMode.Streamlines)
+		{
+			CombineTextures();
+		}
+	}
+
+	void CombineTextures()
+	{
+		Color[] fluidColors = fluidTexture.GetPixels();
+		Color[] streamColors = streamlineTexture.GetPixels();
+
+		for (int i = 0; i < fluidColors.Length; i++)
+		{
+			// Only draw streamline pixels that are not transparent
+			if (streamColors[i].a > 0)
+			{
+				fluidColors[i] = streamColors[i];
+			}
+		}
+
+		fluidTexture.SetPixels(fluidColors);
+		fluidTexture.Apply();
+	}
+	void DrawStreamlines()
+	{
+		// Only process if streamline visualization is enabled
+		if (!showStreamlines) return;
+
+		// Calculate the skip value based on density
+		int skip = Mathf.Max(1, currentSize / (streamlineDensity * 10));
+
+		// Create a new texture if needed or clear the existing one
+		if (streamlineTexture == null || streamlineTexture.width != currentSize)
+		{
+			if (streamlineTexture != null) Destroy(streamlineTexture);
+			streamlineTexture = new Texture2D(currentSize, currentSize, TextureFormat.RGBA32, false);
+			streamlineTexture.filterMode = FilterMode.Point;
+		}
+
+		// Clear the texture
+		Color[] clearColors = new Color[currentSize * currentSize];
+		for (int i = 0; i < clearColors.Length; i++)
+			clearColors[i] = new Color(0, 0, 0, 0);
+		streamlineTexture.SetPixels(clearColors);
+
+		// Draw streamlines
+		for (int i = skip; i < currentSize - skip; i += skip)
+		{
+			for (int j = skip; j < currentSize - skip; j += skip)
+			{
+				int idx = IX(i, j);
+				float vx = velocityX[idx];
+				float vy = velocityY[idx];
+
+				// Calculate velocity magnitude
+				float magnitude = Mathf.Sqrt(vx * vx + vy * vy);
+
+				// Skip cells with very little flow
+				if (magnitude < 0.01f) continue;
+
+				// Calculate line length based on velocity magnitude and scale
+				float lineLength = Mathf.Min(skip - 1, magnitude * streamlineScale);
+
+				// Calculate the angle of the velocity
+				float angle = Mathf.Atan2(vy, vx);
+
+				// Draw a line at the calculated angle and length
+				DrawLine(i, j, angle, lineLength);
+			}
+		}
+
+		// Apply the texture changes
+		streamlineTexture.Apply();
+	}
+
+	void DrawLine(int startX, int startY, float angle, float length)
+	{
+		float halfThickness = streamlineThickness / 2f;
+
+		// Calculate the endpoint of the line
+		float endX = startX + Mathf.Cos(angle) * length;
+		float endY = startY + Mathf.Sin(angle) * length;
+
+		// Draw the line using Bresenham's algorithm
+		int x0 = startX;
+		int y0 = startY;
+		int x1 = Mathf.RoundToInt(endX);
+		int y1 = Mathf.RoundToInt(endY);
+
+		bool steep = Mathf.Abs(y1 - y0) > Mathf.Abs(x1 - x0);
+		if (steep)
+		{
+			// Swap x0, y0
+			int temp = x0;
+			x0 = y0;
+			y0 = temp;
+
+			// Swap x1, y1
+			temp = x1;
+			x1 = y1;
+			y1 = temp;
+		}
+
+		if (x0 > x1)
+		{
+			// Swap x0, x1
+			int temp = x0;
+			x0 = x1;
+			x1 = temp;
+
+			// Swap y0, y1
+			temp = y0;
+			y0 = y1;
+			y1 = temp;
+		}
+
+		int dx = x1 - x0;
+		int dy = Mathf.Abs(y1 - y0);
+		int error = dx / 2;
+
+		int y = y0;
+		int ystep = (y0 < y1) ? 1 : -1;
+
+		for (int x = x0; x <= x1; x++)
+		{
+			// Draw the point with thickness
+			for (int tx = -Mathf.FloorToInt(halfThickness); tx <= halfThickness; tx++)
+			{
+				for (int ty = -Mathf.FloorToInt(halfThickness); ty <= halfThickness; ty++)
+				{
+					int drawX = steep ? y + tx : x + tx;
+					int drawY = steep ? x + ty : y + ty;
+
+					// Check bounds
+					if (drawX >= 0 && drawX < currentSize && drawY >= 0 && drawY < currentSize)
+					{
+						streamlineTexture.SetPixel(drawX, drawY, Color.white);
+					}
+				}
+			}
+
+			error -= dy;
+			if (error < 0)
+			{
+				y += ystep;
+				error += dx;
+			}
+		}
 	}
 
 	// Helper method for debugging resolution
