@@ -53,6 +53,7 @@ public class FluidSimulation : MonoBehaviour
 	public int streamlineDensity = 4; // Controls how many cells are skipped
 	[Range(1f, 5f)]
 	public float streamlineScale = 1.0f; // Scales the length of the lines
+	public Color streamlineColor = Color.white;
 	[Range(0.5f, 3f)]
 	public float streamlineThickness = 1.0f;
 	private Texture2D streamlineTexture;
@@ -702,7 +703,7 @@ public class FluidSimulation : MonoBehaviour
 					// Check bounds
 					if (drawX >= 0 && drawX < currentSize && drawY >= 0 && drawY < currentSize)
 					{
-						streamlineTexture.SetPixel(drawX, drawY, Color.white);
+						streamlineTexture.SetPixel(drawX, drawY, streamlineColor);
 					}
 				}
 			}
