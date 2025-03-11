@@ -38,7 +38,7 @@ public class FluidSimulation : MonoBehaviour
 	[Range(0f, 1f)]
 	public float sourcePositionY = 0.5f; // Normalized position (0-1)
 	public bool moveSourceWithMouse = false;
-	public KeyCode sourcePositionKey = KeyCode.LeftShift; // Hold this key to position source with mouse
+	public KeyCode sourcePositionKey = KeyCode.LeftShift; 
 
 	[Header("Visualization")]
 	public Color fluidcolour = Color.white;
@@ -57,6 +57,14 @@ public class FluidSimulation : MonoBehaviour
 	[Range(0.5f, 3f)]
 	public float streamlineThickness = 1.0f;
 	private Texture2D streamlineTexture;
+
+	[Header("Solid Objects")]
+	public bool enableSolidObjects = false;
+	public SolidObjectType currentObjectType = SolidObjectType.Circle;
+	public float objectSize = 0.1f; // Normalized size (0-1)
+	public float objectRotation = 0f; // For non-circular objects
+	public bool placeObjectWithMouse = false;
+	public KeyCode placeObjectKey = KeyCode.Space;
 
 	// New visualization options
 
@@ -91,6 +99,8 @@ public class FluidSimulation : MonoBehaviour
 
 	private int previousSize;
 	private float previousResolutionMultiplier;
+
+	private bool[] obstacles; // true if cell contains a solid object
 
 	void OnValidate()
 	{
@@ -207,6 +217,8 @@ public class FluidSimulation : MonoBehaviour
 		}
 		streamlineTexture = new Texture2D(currentSize, currentSize, TextureFormat.RGBA32, false);
 		streamlineTexture.filterMode = FilterMode.Point;
+
+		obstacles = new bool[totalSize];
 	}
 
 	void Update()
@@ -242,6 +254,13 @@ public class FluidSimulation : MonoBehaviour
 					Input.GetAxis("Mouse X") * velocityScale,
 					Input.GetAxis("Mouse Y") * velocityScale);
 			}
+		}
+
+		if (placeObjectWithMouse && Input.GetKeyDown(placeObjectKey))
+		{
+			Vector2 mousePos = GetMousePositionInGrid();
+			Vector2 normalizedPos = new Vector2(mousePos.x / currentSize, mousePos.y / currentSize);
+			PlaceSolidObject(currentObjectType, normalizedPos, objectSize, objectRotation);
 		}
 
 		Simulate();
@@ -324,6 +343,99 @@ public class FluidSimulation : MonoBehaviour
 		float normalizedY = (mouseWorldPos.y - minY) / (maxY - minY);
 
 		return new Vector2(normalizedX * currentSize, normalizedY * currentSize);
+	}
+
+	public void PlaceSolidObject(SolidObjectType type, Vector2 position, float size, float rotation = 0f)
+	{
+		// Convert position to grid coordinates
+		int centerX = Mathf.RoundToInt(position.x * currentSize);
+		int centerY = Mathf.RoundToInt(position.y * currentSize);
+
+		// Clear previous obstacles if needed
+		for (int i = 0; i < obstacles.Length; i++)
+			obstacles[i] = false;
+
+		// Place object based on type
+		switch (type)
+		{
+			case SolidObjectType.Circle:
+				PlaceCircle(centerX, centerY, size * currentSize);
+				break;
+			case SolidObjectType.Airfoil:
+				PlaceAirfoil(centerX, centerY, size * currentSize, rotation);
+				break;
+				// Add more shapes as needed
+		}
+	}
+
+	private void PlaceCircle(int centerX, int centerY, float radius)
+	{
+		int radiusInt = Mathf.CeilToInt(radius);
+
+		for (int i = centerX - radiusInt; i <= centerX + radiusInt; i++)
+		{
+			for (int j = centerY - radiusInt; j <= centerY + radiusInt; j++)
+			{
+				// Skip if outside grid
+				if (i < 0 || i >= currentSize || j < 0 || j >= currentSize)
+					continue;
+
+				// Check if point is inside circle
+				float dx = i - centerX;
+				float dy = j - centerY;
+				if (dx * dx + dy * dy <= radius * radius)
+				{
+					obstacles[IX(i, j)] = true;
+				}
+			}
+		}
+	}
+
+	private void PlaceAirfoil(int centerX, int centerY, float size, float rotation)
+	{
+		// simple NACA-like airfoil
+		float chord = size;
+		float thickness = chord * 0.12f; // 12% thickness
+
+		// For each x-position along the chord
+		for (float t = 0; t <= 1.0f; t += 0.01f)
+		{
+			// Basic airfoil thickness distribution (simplified)
+			float halfThickness = thickness * (1 - 4 * t * (1 - t)); // Simple shape
+
+			// Calculate points for upper and lower surfaces
+			float x = chord * t;
+			float y_upper = halfThickness;
+			float y_lower = -halfThickness;
+
+			// Rotate points
+			float rad = rotation * Mathf.Deg2Rad;
+			float cos = Mathf.Cos(rad);
+			float sin = Mathf.Sin(rad);
+
+			// Upper surface point
+			int ix_upper = centerX + Mathf.RoundToInt(x * cos - y_upper * sin);
+			int iy_upper = centerY + Mathf.RoundToInt(x * sin + y_upper * cos);
+
+			// Lower surface point
+			int ix_lower = centerX + Mathf.RoundToInt(x * cos - y_lower * sin);
+			int iy_lower = centerY + Mathf.RoundToInt(x * sin + y_lower * cos);
+
+			// Mark these cells as obstacles
+			if (ix_upper >= 0 && ix_upper < currentSize && iy_upper >= 0 && iy_upper < currentSize)
+				obstacles[IX(ix_upper, iy_upper)] = true;
+
+			if (ix_lower >= 0 && ix_lower < currentSize && iy_lower >= 0 && iy_lower < currentSize)
+				obstacles[IX(ix_lower, iy_lower)] = true;
+		}
+	}
+
+	public enum SolidObjectType
+	{
+		Circle,
+		Airfoil,
+		Rectangle,
+		Triangle
 	}
 
 	void Simulate()
@@ -437,9 +549,56 @@ public class FluidSimulation : MonoBehaviour
 		{
 			for (int j = 1; j < currentSize - 1; j++)
 			{
+				// Skip advection for solid cells
+				if (obstacles[IX(i, j)])
+				{
+					d[IX(i, j)] = d0[IX(i, j)];
+					continue;
+				}
+
 				float x = i - dt0 * velocX[IX(i, j)];
 				float y = j - dt0 * velocY[IX(i, j)];
 
+				// Add collision detection with solid objects
+				// backtracking along the path
+				float step = 1.0f;
+				float tx = x;
+				float ty = y;
+
+				// Check if intersect a solid - if so, adjust the backtracking
+				while (step > 0.01f)
+				{
+					int ix = Mathf.FloorToInt(tx);
+					int iy = Mathf.FloorToInt(ty);
+
+					if (ix >= 0 && ix < currentSize - 1 && iy >= 0 && iy < currentSize - 1)
+					{
+						if (obstacles[IX(ix, iy)])
+						{
+							// hit an obstacle, back up
+							tx += step * velocX[IX(i, j)] * dt0;
+							ty += step * velocY[IX(i, j)] * dt0;
+							step *= 0.5f; // Reduce step size
+						}
+						else
+						{
+							// valid fluid cell, move forward
+							tx -= step * velocX[IX(i, j)] * dt0;
+							ty -= step * velocY[IX(i, j)] * dt0;
+						}
+					}
+					else
+					{
+						// outside the grid, abort
+						break;
+					}
+				}
+
+				// Use the adjusted position for advection
+				x = tx;
+				y = ty;
+
+				// Clamp to grid boundaries
 				if (x < 0.5f) x = 0.5f;
 				if (x > currentSize - 1.5f) x = currentSize - 1.5f;
 				int i0 = (int)x;
@@ -465,6 +624,7 @@ public class FluidSimulation : MonoBehaviour
 
 	void SetBoundary(int b, float[] x)
 	{
+		// Original edge boundary handling
 		for (int i = 1; i < currentSize - 1; i++)
 		{
 			x[IX(0, i)] = b == 1 ? -x[IX(1, i)] : x[IX(1, i)];
@@ -473,10 +633,43 @@ public class FluidSimulation : MonoBehaviour
 			x[IX(i, currentSize - 1)] = b == 2 ? -x[IX(i, currentSize - 2)] : x[IX(i, currentSize - 2)];
 		}
 
+		// Handle corners
 		x[IX(0, 0)] = 0.5f * (x[IX(1, 0)] + x[IX(0, 1)]);
 		x[IX(0, currentSize - 1)] = 0.5f * (x[IX(1, currentSize - 1)] + x[IX(0, currentSize - 2)]);
 		x[IX(currentSize - 1, 0)] = 0.5f * (x[IX(currentSize - 2, 0)] + x[IX(currentSize - 1, 1)]);
 		x[IX(currentSize - 1, currentSize - 1)] = 0.5f * (x[IX(currentSize - 2, currentSize - 1)] + x[IX(currentSize - 1, currentSize - 2)]);
+
+		// Handle internal solid boundaries
+		for (int i = 1; i < currentSize - 1; i++)
+		{
+			for (int j = 1; j < currentSize - 1; j++)
+			{
+				if (obstacles[IX(i, j)])
+				{
+					// For each solid cell, check its neighbors
+					// For velocity components, no-slip boundary conditions
+					if (b == 1 || b == 2) // x or y velocity component
+					{
+						x[IX(i, j)] = 0; // No-slip condition: zero velocity at solid boundaries
+					}
+					else // For density or pressure
+					{
+						// Average the values from non-solid neighbors
+						float sum = 0;
+						int count = 0;
+
+						// Check each of the 4 neighbors
+						if (!obstacles[IX(i + 1, j)]) { sum += x[IX(i + 1, j)]; count++; }
+						if (!obstacles[IX(i - 1, j)]) { sum += x[IX(i - 1, j)]; count++; }
+						if (!obstacles[IX(i, j + 1)]) { sum += x[IX(i, j + 1)]; count++; }
+						if (!obstacles[IX(i, j - 1)]) { sum += x[IX(i, j - 1)]; count++; }
+
+						if (count > 0)
+							x[IX(i, j)] = sum / count;
+					}
+				}
+			}
+		}
 	}
 
 	int IX(int x, int y)
@@ -492,9 +685,19 @@ public class FluidSimulation : MonoBehaviour
 		{
 			for (int j = 0; j < currentSize; j++)
 			{
-				float d = density[IX(i, j)];
+				int idx = IX(i, j);
+
+				//float d = density[IX(i, j)];
+				float d = density[idx];
 				float normalizedD = d * colourIntensity;
 				Color pixelColor;
+
+				if (obstacles[idx])
+				{
+					colours[idx] = Color.gray; 
+					continue;
+				}
+				
 
 				// Apply different color modes
 				switch (colorMode)
