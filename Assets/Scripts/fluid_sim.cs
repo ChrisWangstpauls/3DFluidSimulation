@@ -166,6 +166,12 @@ public class FluidSimulation : MonoBehaviour
 		velocityX0 = new float[totalSize];
 		velocityY0 = new float[totalSize];
 
+		obstacles = new bool[totalSize];
+		for (int i = 0; i < totalSize; i++)
+		{ 
+			obstacles[i] = false; 
+		}
+
 		// Create or recreate visualization texture
 		if (fluidTexture != null)
 		{
@@ -223,6 +229,9 @@ public class FluidSimulation : MonoBehaviour
 
 	void Update()
 	{
+
+		System.GC.Collect();
+
 		elapsedTime += Time.deltaTime;
 
 		// Handle source positioning with mouse if enabled
@@ -393,12 +402,13 @@ public class FluidSimulation : MonoBehaviour
 
 	private void PlaceAirfoil(int centerX, int centerY, float size, float rotation)
 	{
+
 		// simple NACA-like airfoil
 		float chord = size;
 		float thickness = chord * 0.12f; // 12% thickness
 
 		// For each x-position along the chord
-		for (float t = 0; t <= 1.0f; t += 0.01f)
+		for (float t = 0; t <= 1.0f; t += 0.1f)
 		{
 			// Basic airfoil thickness distribution (simplified)
 			float halfThickness = thickness * (1 - 4 * t * (1 - t)); // Simple shape
@@ -440,6 +450,8 @@ public class FluidSimulation : MonoBehaviour
 
 	void Simulate()
 	{
+		Debug.Log("Simulate start");
+
 		// Scale diffusion and viscosity with resolution
 		float effectiveTimeStep = autoAdjustParameters ? timeStep * dtScale : timeStep;
 		float effectiveDiffusion = autoAdjustParameters ? diffusion / resolutionMultiplier : diffusion;
@@ -447,6 +459,15 @@ public class FluidSimulation : MonoBehaviour
 
 		VelocityStep(effectiveTimeStep, effectiveViscosity);
 		DensityStep(effectiveTimeStep, effectiveDiffusion);
+
+
+		/*Debug.Log("Before VelocityStep");
+		VelocityStep(effectiveTimeStep, effectiveViscosity);
+		Debug.Log("After VelocityStep");
+
+		Debug.Log("Before DensityStep");
+		DensityStep(effectiveTimeStep, effectiveDiffusion);
+		Debug.Log("After DensityStep");*/
 	}
 
 	void VelocityStep(float dt, float visc)
@@ -494,22 +515,32 @@ public class FluidSimulation : MonoBehaviour
 
 	void LinearSolve(int b, float[] x, float[] x0, float a, float c)
 	{
+		// Add a relaxation parameter to improve convergence
+		float relaxation = 1.9f; // Over-relaxation for faster convergence
+
 		for (int k = 0; k < 20; k++)
 		{
 			for (int i = 1; i < currentSize - 1; i++)
 			{
 				for (int j = 1; j < currentSize - 1; j++)
 				{
-					x[IX(i, j)] = (x0[IX(i, j)] + a * (
+					// Skip solid cells
+					if (obstacles[IX(i, j)])
+						continue;
+
+					float prev = x[IX(i, j)];
+					float next = (x0[IX(i, j)] + a * (
 						x[IX(i + 1, j)] + x[IX(i - 1, j)] +
 						x[IX(i, j + 1)] + x[IX(i, j - 1)]
 					)) / c;
+
+					// Apply relaxation
+					x[IX(i, j)] = prev + relaxation * (next - prev);
 				}
 			}
 			SetBoundary(b, x);
 		}
 	}
-
 	void Project(float[] velocX, float[] velocY, float[] p, float[] div)
 	{
 		for (int i = 1; i < currentSize - 1; i++)
@@ -559,15 +590,16 @@ public class FluidSimulation : MonoBehaviour
 				float x = i - dt0 * velocX[IX(i, j)];
 				float y = j - dt0 * velocY[IX(i, j)];
 
-				// Add collision detection with solid objects
-				// backtracking along the path
+				// Add a maximum iteration count to prevent infinite loops
+				int maxIterations = 10;
+				int iterCount = 0;
 				float step = 1.0f;
 				float tx = x;
 				float ty = y;
 
-				// Check if intersect a solid - if so, adjust the backtracking
-				while (step > 0.01f)
+				while (step > 0.01f && iterCount < maxIterations)
 				{
+					iterCount++;
 					int ix = Mathf.FloorToInt(tx);
 					int iy = Mathf.FloorToInt(ty);
 
@@ -575,26 +607,31 @@ public class FluidSimulation : MonoBehaviour
 					{
 						if (obstacles[IX(ix, iy)])
 						{
-							// hit an obstacle, back up
+							// We hit an obstacle, back up
 							tx += step * velocX[IX(i, j)] * dt0;
 							ty += step * velocY[IX(i, j)] * dt0;
-							step *= 0.5f; // Reduce step size
+							step *= 0.5f;
 						}
 						else
 						{
-							// valid fluid cell, move forward
+							// We're in a valid fluid cell, move forward
 							tx -= step * velocX[IX(i, j)] * dt0;
 							ty -= step * velocY[IX(i, j)] * dt0;
 						}
 					}
 					else
 					{
-						// outside the grid, abort
 						break;
 					}
 				}
 
-				// Use the adjusted position for advection
+				// Use original position if we couldn't resolve collision
+				if (iterCount >= maxIterations)
+				{
+					tx = i;
+					ty = j;
+				}
+
 				x = tx;
 				y = ty;
 
@@ -639,7 +676,7 @@ public class FluidSimulation : MonoBehaviour
 		x[IX(currentSize - 1, 0)] = 0.5f * (x[IX(currentSize - 2, 0)] + x[IX(currentSize - 1, 1)]);
 		x[IX(currentSize - 1, currentSize - 1)] = 0.5f * (x[IX(currentSize - 2, currentSize - 1)] + x[IX(currentSize - 1, currentSize - 2)]);
 
-		// Handle internal solid boundaries
+		/*// Handle internal solid boundaries
 		for (int i = 1; i < currentSize - 1; i++)
 		{
 			for (int j = 1; j < currentSize - 1; j++)
@@ -667,6 +704,28 @@ public class FluidSimulation : MonoBehaviour
 						if (count > 0)
 							x[IX(i, j)] = sum / count;
 					}
+				}
+			}
+		}*/
+
+		// For internal solid boundaries
+		for (int i = 1; i < currentSize - 1; i++)
+		{
+			for (int j = 1; j < currentSize - 1; j++)
+			{
+				if (obstacles[IX(i, j)])
+				{
+					float sum = 0;
+					int count = 0;
+
+					// Add bounds checking
+					if (i + 1 < currentSize && !obstacles[IX(i + 1, j)]) { sum += x[IX(i + 1, j)]; count++; }
+					if (i - 1 >= 0 && !obstacles[IX(i - 1, j)]) { sum += x[IX(i - 1, j)]; count++; }
+					if (j + 1 < currentSize && !obstacles[IX(i, j + 1)]) { sum += x[IX(i, j + 1)]; count++; }
+					if (j - 1 >= 0 && !obstacles[IX(i, j - 1)]) { sum += x[IX(i, j - 1)]; count++; }
+
+					if (count > 0)
+						x[IX(i, j)] = sum / count;
 				}
 			}
 		}
