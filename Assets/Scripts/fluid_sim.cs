@@ -38,7 +38,7 @@ public class FluidSimulation : MonoBehaviour
 	[Range(0f, 1f)]
 	public float sourcePositionY = 0.5f; // Normalized position (0-1)
 	public bool moveSourceWithMouse = false;
-	public KeyCode sourcePositionKey = KeyCode.LeftShift; 
+	public KeyCode sourcePositionKey = KeyCode.LeftShift; // Hold this key to position source with mouse
 
 	[Header("Visualization")]
 	public Color fluidcolour = Color.white;
@@ -58,13 +58,21 @@ public class FluidSimulation : MonoBehaviour
 	public float streamlineThickness = 1.0f;
 	private Texture2D streamlineTexture;
 
-	[Header("Solid Objects")]
-	public bool enableSolidObjects = false;
-	public SolidObjectType currentObjectType = SolidObjectType.Circle;
-	public float objectSize = 0.1f; // Normalized size (0-1)
-	public float objectRotation = 0f; // For non-circular objects
-	public bool placeObjectWithMouse = false;
-	public KeyCode placeObjectKey = KeyCode.Space;
+	[Header("Obstacle Settings")]
+	public bool enableObstacle = true;
+	public enum ObstacleShape { Circle, Rectangle, Custom }
+	public ObstacleShape obstacleShape = ObstacleShape.Circle;
+	[Range(0f, 1f)]
+	public float obstaclePositionX = 0.5f;
+	[Range(0f, 1f)]
+	public float obstaclePositionY = 0.5f;
+	[Range(0.005f, 0.5f)]
+	public float obstacleRadius = 0.1f;
+	[Range(0.05f, 0.5f)]
+	public float obstacleWidth = 0.2f;
+	[Range(0.05f, 0.5f)]
+	public float obstacleHeight = 0.2f;
+	public Color obstacleColor = Color.gray;
 
 	// New visualization options
 
@@ -100,7 +108,7 @@ public class FluidSimulation : MonoBehaviour
 	private int previousSize;
 	private float previousResolutionMultiplier;
 
-	private bool[] obstacles; // true if cell contains a solid object
+	private bool[] obstacles;
 
 	void OnValidate()
 	{
@@ -122,11 +130,19 @@ public class FluidSimulation : MonoBehaviour
 		{
 			UpdateVisualization();
 		}
+
+		// Update obstacles when parameters change in editor
+		if (obstacles != null && obstacles.Length > 0)
+		{
+			SetupObstacles();
+		}
+
 	}
 
 	void Start()
 	{
 		ResetSimulation();
+		SetupObstacles();
 
 		// Initialize default gradient if none is set
 		if (colourGradient.Equals(new Gradient()))
@@ -155,7 +171,7 @@ public class FluidSimulation : MonoBehaviour
 		// Calculate cell size for physical accuracy
 		cellSize = physicalSize / currentSize;
 
-		// Scale time step inversely with resolution to maintain stability
+		// Scale time step inversely with resolution to maintain stability	
 		dtScale = autoAdjustParameters ? 128f / currentSize : 1f;
 
 		// Initialize arrays
@@ -167,10 +183,6 @@ public class FluidSimulation : MonoBehaviour
 		velocityY0 = new float[totalSize];
 
 		obstacles = new bool[totalSize];
-		for (int i = 0; i < totalSize; i++)
-		{ 
-			obstacles[i] = false; 
-		}
 
 		// Create or recreate visualization texture
 		if (fluidTexture != null)
@@ -224,14 +236,88 @@ public class FluidSimulation : MonoBehaviour
 		streamlineTexture = new Texture2D(currentSize, currentSize, TextureFormat.RGBA32, false);
 		streamlineTexture.filterMode = FilterMode.Point;
 
-		obstacles = new bool[totalSize];
+		SetupObstacles();
 	}
 
+	void SetupObstacles()
+	{
+		// First, clear all obstacles
+		for (int i = 0; i < obstacles.Length; i++)
+		{
+			obstacles[i] = false;
+		}
+
+		// If obstacles are disabled, return early
+		if (!enableObstacle)
+			return;
+
+		// Convert normalized position (0-1) to grid coordinates
+		float obstacleX = obstaclePositionX * currentSize;
+		float obstacleY = obstaclePositionY * currentSize;
+
+		// Set obstacle cells based on selected shape
+		switch (obstacleShape)
+		{
+			case ObstacleShape.Circle:
+				float radiusInCells = obstacleRadius * currentSize;
+
+				// Process each cell to determine if it's inside the circle
+				for (int i = 0; i < currentSize; i++)
+				{
+					for (int j = 0; j < currentSize; j++)
+					{
+						float distSquared = (i - obstacleX) * (i - obstacleX) +
+											(j - obstacleY) * (j - obstacleY);
+
+						if (distSquared < radiusInCells * radiusInCells)
+						{
+							obstacles[IX(i, j)] = true;
+						}
+					}
+				}
+				break;
+
+			case ObstacleShape.Rectangle:
+				float halfWidth = obstacleWidth * currentSize * 0.5f;
+				float halfHeight = obstacleHeight * currentSize * 0.5f;
+
+				int minX = Mathf.FloorToInt(obstacleX - halfWidth);
+				int maxX = Mathf.CeilToInt(obstacleX + halfWidth);
+				int minY = Mathf.FloorToInt(obstacleY - halfHeight);
+				int maxY = Mathf.CeilToInt(obstacleY + halfHeight);
+
+				// Clamp to grid boundaries
+				minX = Mathf.Max(0, minX);
+				maxX = Mathf.Min(currentSize - 1, maxX);
+				minY = Mathf.Max(0, minY);
+				maxY = Mathf.Min(currentSize - 1, maxY);
+
+				// Mark cells inside the rectangle as obstacles
+				for (int i = minX; i <= maxX; i++)
+				{
+					for (int j = minY; j <= maxY; j++)
+					{
+						obstacles[IX(i, j)] = true;
+					}
+				}
+				break;
+
+			case ObstacleShape.Custom:
+				// You can implement custom shapes here if needed
+				Debug.Log("Custom obstacle shape is selected but not implemented");
+				break;
+		}
+
+		// Debug information
+		int obstacleCount = 0;
+		for (int i = 0; i < obstacles.Length; i++)
+		{
+			if (obstacles[i]) obstacleCount++;
+		}
+		Debug.Log($"Obstacle setup complete: {obstacleCount} cells marked as obstacles");
+	}
 	void Update()
 	{
-
-		System.GC.Collect();
-
 		elapsedTime += Time.deltaTime;
 
 		// Handle source positioning with mouse if enabled
@@ -263,13 +349,6 @@ public class FluidSimulation : MonoBehaviour
 					Input.GetAxis("Mouse X") * velocityScale,
 					Input.GetAxis("Mouse Y") * velocityScale);
 			}
-		}
-
-		if (placeObjectWithMouse && Input.GetKeyDown(placeObjectKey))
-		{
-			Vector2 mousePos = GetMousePositionInGrid();
-			Vector2 normalizedPos = new Vector2(mousePos.x / currentSize, mousePos.y / currentSize);
-			PlaceSolidObject(currentObjectType, normalizedPos, objectSize, objectRotation);
 		}
 
 		Simulate();
@@ -354,104 +433,8 @@ public class FluidSimulation : MonoBehaviour
 		return new Vector2(normalizedX * currentSize, normalizedY * currentSize);
 	}
 
-	public void PlaceSolidObject(SolidObjectType type, Vector2 position, float size, float rotation = 0f)
-	{
-		// Convert position to grid coordinates
-		int centerX = Mathf.RoundToInt(position.x * currentSize);
-		int centerY = Mathf.RoundToInt(position.y * currentSize);
-
-		// Clear previous obstacles if needed
-		for (int i = 0; i < obstacles.Length; i++)
-			obstacles[i] = false;
-
-		// Place object based on type
-		switch (type)
-		{
-			case SolidObjectType.Circle:
-				PlaceCircle(centerX, centerY, size * currentSize);
-				break;
-			case SolidObjectType.Airfoil:
-				PlaceAirfoil(centerX, centerY, size * currentSize, rotation);
-				break;
-				// Add more shapes as needed
-		}
-	}
-
-	private void PlaceCircle(int centerX, int centerY, float radius)
-	{
-		int radiusInt = Mathf.CeilToInt(radius);
-
-		for (int i = centerX - radiusInt; i <= centerX + radiusInt; i++)
-		{
-			for (int j = centerY - radiusInt; j <= centerY + radiusInt; j++)
-			{
-				// Skip if outside grid
-				if (i < 0 || i >= currentSize || j < 0 || j >= currentSize)
-					continue;
-
-				// Check if point is inside circle
-				float dx = i - centerX;
-				float dy = j - centerY;
-				if (dx * dx + dy * dy <= radius * radius)
-				{
-					obstacles[IX(i, j)] = true;
-				}
-			}
-		}
-	}
-
-	private void PlaceAirfoil(int centerX, int centerY, float size, float rotation)
-	{
-
-		// simple NACA-like airfoil
-		float chord = size;
-		float thickness = chord * 0.12f; // 12% thickness
-
-		// For each x-position along the chord
-		for (float t = 0; t <= 1.0f; t += 0.1f)
-		{
-			// Basic airfoil thickness distribution (simplified)
-			float halfThickness = thickness * (1 - 4 * t * (1 - t)); // Simple shape
-
-			// Calculate points for upper and lower surfaces
-			float x = chord * t;
-			float y_upper = halfThickness;
-			float y_lower = -halfThickness;
-
-			// Rotate points
-			float rad = rotation * Mathf.Deg2Rad;
-			float cos = Mathf.Cos(rad);
-			float sin = Mathf.Sin(rad);
-
-			// Upper surface point
-			int ix_upper = centerX + Mathf.RoundToInt(x * cos - y_upper * sin);
-			int iy_upper = centerY + Mathf.RoundToInt(x * sin + y_upper * cos);
-
-			// Lower surface point
-			int ix_lower = centerX + Mathf.RoundToInt(x * cos - y_lower * sin);
-			int iy_lower = centerY + Mathf.RoundToInt(x * sin + y_lower * cos);
-
-			// Mark these cells as obstacles
-			if (ix_upper >= 0 && ix_upper < currentSize && iy_upper >= 0 && iy_upper < currentSize)
-				obstacles[IX(ix_upper, iy_upper)] = true;
-
-			if (ix_lower >= 0 && ix_lower < currentSize && iy_lower >= 0 && iy_lower < currentSize)
-				obstacles[IX(ix_lower, iy_lower)] = true;
-		}
-	}
-
-	public enum SolidObjectType
-	{
-		Circle,
-		Airfoil,
-		Rectangle,
-		Triangle
-	}
-
 	void Simulate()
 	{
-		Debug.Log("Simulate start");
-
 		// Scale diffusion and viscosity with resolution
 		float effectiveTimeStep = autoAdjustParameters ? timeStep * dtScale : timeStep;
 		float effectiveDiffusion = autoAdjustParameters ? diffusion / resolutionMultiplier : diffusion;
@@ -460,14 +443,61 @@ public class FluidSimulation : MonoBehaviour
 		VelocityStep(effectiveTimeStep, effectiveViscosity);
 		DensityStep(effectiveTimeStep, effectiveDiffusion);
 
+		// Apply obstacle interactions
+		if (enableObstacle)
+		{
+			EnforceObstacleBoundaries();
+		}
+	}
 
-		/*Debug.Log("Before VelocityStep");
-		VelocityStep(effectiveTimeStep, effectiveViscosity);
-		Debug.Log("After VelocityStep");
+	void EnforceObstacleBoundaries()
+	{
+		// Ensure zero velocity inside obstacles
+		for (int i = 1; i < currentSize - 1; i++)
+		{
+			for (int j = 1; j < currentSize - 1; j++)
+			{
+				int idx = IX(i, j);
+				if (obstacles[idx])
+				{
+					velocityX[idx] = 0;
+					velocityY[idx] = 0;
 
-		Debug.Log("Before DensityStep");
-		DensityStep(effectiveTimeStep, effectiveDiffusion);
-		Debug.Log("After DensityStep");*/
+					// Optional: Create slight drag effect near obstacles
+					// This makes the simulation more realistic
+					ApplyDragNearObstacle(i, j);
+				}
+			}
+		}
+	}
+
+	void ApplyDragNearObstacle(int obstacleI, int obstacleJ)
+	{
+		// Apply drag effect to cells adjacent to obstacles
+		float dragFactor = 0.95f; // Adjust as needed
+
+		// Check and apply to all adjacent cells
+		int[] di = { -1, 1, 0, 0 };
+		int[] dj = { 0, 0, -1, 1 };
+
+		for (int n = 0; n < 4; n++)
+		{
+			int ni = obstacleI + di[n];
+			int nj = obstacleJ + dj[n];
+
+			// Skip if out of bounds
+			if (ni < 1 || ni >= currentSize - 1 || nj < 1 || nj >= currentSize - 1)
+				continue;
+
+			// Skip if this is also an obstacle
+			int nidx = IX(ni, nj);
+			if (obstacles[nidx])
+				continue;
+
+			// Apply drag to fluid velocity
+			velocityX[nidx] *= dragFactor;
+			velocityY[nidx] *= dragFactor;
+		}
 	}
 
 	void VelocityStep(float dt, float visc)
@@ -515,32 +545,22 @@ public class FluidSimulation : MonoBehaviour
 
 	void LinearSolve(int b, float[] x, float[] x0, float a, float c)
 	{
-		// Add a relaxation parameter to improve convergence
-		float relaxation = 1.9f; // Over-relaxation for faster convergence
-
 		for (int k = 0; k < 20; k++)
 		{
 			for (int i = 1; i < currentSize - 1; i++)
 			{
 				for (int j = 1; j < currentSize - 1; j++)
 				{
-					// Skip solid cells
-					if (obstacles[IX(i, j)])
-						continue;
-
-					float prev = x[IX(i, j)];
-					float next = (x0[IX(i, j)] + a * (
+					x[IX(i, j)] = (x0[IX(i, j)] + a * (
 						x[IX(i + 1, j)] + x[IX(i - 1, j)] +
 						x[IX(i, j + 1)] + x[IX(i, j - 1)]
 					)) / c;
-
-					// Apply relaxation
-					x[IX(i, j)] = prev + relaxation * (next - prev);
 				}
 			}
 			SetBoundary(b, x);
 		}
 	}
+
 	void Project(float[] velocX, float[] velocY, float[] p, float[] div)
 	{
 		for (int i = 1; i < currentSize - 1; i++)
@@ -580,62 +600,23 @@ public class FluidSimulation : MonoBehaviour
 		{
 			for (int j = 1; j < currentSize - 1; j++)
 			{
-				// Skip advection for solid cells
-				if (obstacles[IX(i, j)])
+				int idx = IX(i, j);
+
+				if (enableObstacle && obstacles[idx])
 				{
-					d[IX(i, j)] = d0[IX(i, j)];
+					// For velocities, set to zero
+					if (b == 1 || b == 2)
+					{
+						d[idx] = 0;
+					}
+					// For other quantities, leave unchanged
+					// This is important to prevent obstacles from "leaking" density
 					continue;
 				}
 
-				float x = i - dt0 * velocX[IX(i, j)];
-				float y = j - dt0 * velocY[IX(i, j)];
+				float x = i - dt0 * velocX[idx];
+				float y = j - dt0 * velocY[idx];
 
-				// Add a maximum iteration count to prevent infinite loops
-				int maxIterations = 10;
-				int iterCount = 0;
-				float step = 1.0f;
-				float tx = x;
-				float ty = y;
-
-				while (step > 0.01f && iterCount < maxIterations)
-				{
-					iterCount++;
-					int ix = Mathf.FloorToInt(tx);
-					int iy = Mathf.FloorToInt(ty);
-
-					if (ix >= 0 && ix < currentSize - 1 && iy >= 0 && iy < currentSize - 1)
-					{
-						if (obstacles[IX(ix, iy)])
-						{
-							// We hit an obstacle, back up
-							tx += step * velocX[IX(i, j)] * dt0;
-							ty += step * velocY[IX(i, j)] * dt0;
-							step *= 0.5f;
-						}
-						else
-						{
-							// We're in a valid fluid cell, move forward
-							tx -= step * velocX[IX(i, j)] * dt0;
-							ty -= step * velocY[IX(i, j)] * dt0;
-						}
-					}
-					else
-					{
-						break;
-					}
-				}
-
-				// Use original position if we couldn't resolve collision
-				if (iterCount >= maxIterations)
-				{
-					tx = i;
-					ty = j;
-				}
-
-				x = tx;
-				y = ty;
-
-				// Clamp to grid boundaries
 				if (x < 0.5f) x = 0.5f;
 				if (x > currentSize - 1.5f) x = currentSize - 1.5f;
 				int i0 = (int)x;
@@ -661,7 +642,7 @@ public class FluidSimulation : MonoBehaviour
 
 	void SetBoundary(int b, float[] x)
 	{
-		// Original edge boundary handling
+		// Handle outer grid boundaries (unchanged)
 		for (int i = 1; i < currentSize - 1; i++)
 		{
 			x[IX(0, i)] = b == 1 ? -x[IX(1, i)] : x[IX(1, i)];
@@ -670,62 +651,43 @@ public class FluidSimulation : MonoBehaviour
 			x[IX(i, currentSize - 1)] = b == 2 ? -x[IX(i, currentSize - 2)] : x[IX(i, currentSize - 2)];
 		}
 
-		// Handle corners
+		// Corner cells (unchanged)
 		x[IX(0, 0)] = 0.5f * (x[IX(1, 0)] + x[IX(0, 1)]);
 		x[IX(0, currentSize - 1)] = 0.5f * (x[IX(1, currentSize - 1)] + x[IX(0, currentSize - 2)]);
 		x[IX(currentSize - 1, 0)] = 0.5f * (x[IX(currentSize - 2, 0)] + x[IX(currentSize - 1, 1)]);
 		x[IX(currentSize - 1, currentSize - 1)] = 0.5f * (x[IX(currentSize - 2, currentSize - 1)] + x[IX(currentSize - 1, currentSize - 2)]);
 
-		/*// Handle internal solid boundaries
+		// Skip if obstacles are disabled
+		if (!enableObstacle)
+			return;
+
+		// Handle internal obstacle boundaries
 		for (int i = 1; i < currentSize - 1; i++)
 		{
 			for (int j = 1; j < currentSize - 1; j++)
 			{
 				if (obstacles[IX(i, j)])
 				{
-					// For each solid cell, check its neighbors
-					// For velocity components, no-slip boundary conditions
-					if (b == 1 || b == 2) // x or y velocity component
+					// For velocity components (b = 1 or b = 2), enforce no-slip condition
+					if (b == 1 || b == 2)
 					{
-						x[IX(i, j)] = 0; // No-slip condition: zero velocity at solid boundaries
+						x[IX(i, j)] = 0; // Zero velocity at obstacles
 					}
-					else // For density or pressure
+					// For density or pressure (b = 0), average the neighboring non-obstacle cells
+					else
 					{
-						// Average the values from non-solid neighbors
 						float sum = 0;
 						int count = 0;
 
-						// Check each of the 4 neighbors
-						if (!obstacles[IX(i + 1, j)]) { sum += x[IX(i + 1, j)]; count++; }
-						if (!obstacles[IX(i - 1, j)]) { sum += x[IX(i - 1, j)]; count++; }
-						if (!obstacles[IX(i, j + 1)]) { sum += x[IX(i, j + 1)]; count++; }
-						if (!obstacles[IX(i, j - 1)]) { sum += x[IX(i, j - 1)]; count++; }
+						// Check all four neighbors
+						if (i > 0 && !obstacles[IX(i - 1, j)]) { sum += x[IX(i - 1, j)]; count++; }
+						if (i < currentSize - 1 && !obstacles[IX(i + 1, j)]) { sum += x[IX(i + 1, j)]; count++; }
+						if (j > 0 && !obstacles[IX(i, j - 1)]) { sum += x[IX(i, j - 1)]; count++; }
+						if (j < currentSize - 1 && !obstacles[IX(i, j + 1)]) { sum += x[IX(i, j + 1)]; count++; }
 
-						if (count > 0)
-							x[IX(i, j)] = sum / count;
+						// Use the average of non-obstacle neighbors, or 0 if all neighbors are obstacles
+						x[IX(i, j)] = count > 0 ? sum / count : 0;
 					}
-				}
-			}
-		}*/
-
-		// For internal solid boundaries
-		for (int i = 1; i < currentSize - 1; i++)
-		{
-			for (int j = 1; j < currentSize - 1; j++)
-			{
-				if (obstacles[IX(i, j)])
-				{
-					float sum = 0;
-					int count = 0;
-
-					// Add bounds checking
-					if (i + 1 < currentSize && !obstacles[IX(i + 1, j)]) { sum += x[IX(i + 1, j)]; count++; }
-					if (i - 1 >= 0 && !obstacles[IX(i - 1, j)]) { sum += x[IX(i - 1, j)]; count++; }
-					if (j + 1 < currentSize && !obstacles[IX(i, j + 1)]) { sum += x[IX(i, j + 1)]; count++; }
-					if (j - 1 >= 0 && !obstacles[IX(i, j - 1)]) { sum += x[IX(i, j - 1)]; count++; }
-
-					if (count > 0)
-						x[IX(i, j)] = sum / count;
 				}
 			}
 		}
@@ -746,17 +708,16 @@ public class FluidSimulation : MonoBehaviour
 			{
 				int idx = IX(i, j);
 
-				//float d = density[IX(i, j)];
+				if (enableObstacle && obstacles[idx])
+				{
+					// Draw obstacles with specified color
+					colours[idx] = obstacleColor;
+					continue; // Skip regular fluid coloring for obstacle cells
+				}
+
 				float d = density[idx];
 				float normalizedD = d * colourIntensity;
 				Color pixelColor;
-
-				if (obstacles[idx])
-				{
-					colours[idx] = Color.gray; 
-					continue;
-				}
-				
 
 				// Apply different color modes
 				switch (colorMode)
@@ -816,6 +777,9 @@ public class FluidSimulation : MonoBehaviour
 						colours[IX(i, j)] = sourcePositionColor;
 					}
 				}
+
+				colours[idx] = pixelColor;
+
 			}
 		}
 
@@ -832,6 +796,21 @@ public class FluidSimulation : MonoBehaviour
 		if (colorMode == ColorMode.Streamlines)
 		{
 			CombineTextures();
+		}
+
+		if (enableObstacle)
+		{
+			for (int i = 0; i < currentSize; i++)
+			{
+				for (int j = 0; j < currentSize; j++)
+				{
+					if (obstacles[IX(i, j)])
+					{
+						// Display obstacles with a fixed color
+						colours[IX(i, j)] = obstacleColor;
+					}
+				}
+			}
 		}
 	}
 

@@ -163,7 +163,7 @@ MonoBehaviour:
   sourceEmitsVelocity: 1
   sourceDirection: 0
   sourceVelocity: 39.2
-  sourceRadius: 0.5
+  sourceRadius: 1.5
   sourcePulseRate: 5
   sourcePulsing: 1
   sourcePositionX: 0.05
@@ -203,12 +203,17 @@ MonoBehaviour:
     m_ColorSpace: -1
     m_NumColorKeys: 2
     m_NumAlphaKeys: 2
+  showStreamlines: 0
+  streamlineDensity: 4
+  streamlineScale: 1
+  streamlineColor: {r: 1, g: 1, b: 1, a: 1}
+  streamlineThickness: 1
   colorMode: 2
   lowDensityColor: {r: 0, g: 0, b: 1, a: 1}
   mediumDensityColor: {r: 0, g: 1, b: 0, a: 1}
   highDensityColor: {r: 1, g: 0, b: 0, a: 1}
   mediumDensityThreshold: 0.5
-  highDensityThreshold: 2
+  highDensityThreshold: 5
   visualizeSourcePosition: 0
   sourcePositionColor: {r: 1, g: 0.034113742, b: 0.015686274, a: 1}
 --- !u!4 &49044249
