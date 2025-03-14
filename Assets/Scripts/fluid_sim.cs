@@ -74,6 +74,7 @@ public class FluidSimulation : MonoBehaviour
 	public float obstacleHeight = 0.2f;
 	public Color obstacleColor = Color.gray;
 
+
 	// New visualization options
 
 	public enum ColorMode { SingleColor, Gradient, DensityBased, Streamlines }
