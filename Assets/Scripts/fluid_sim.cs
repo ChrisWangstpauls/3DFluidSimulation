@@ -111,6 +111,11 @@ public class FluidSimulation : MonoBehaviour
 
 	private bool[] obstacles;
 
+	private NativeArray<float> jobBuffer1;
+	private NativeArray<float> jobBuffer2;
+	private NativeArray<bool> jobObstacles;
+	private bool jobBuffersInitialized = false;
+
 	void OnValidate()
 	{
 		// Update resolution when parameters change in editor
@@ -184,6 +189,9 @@ public class FluidSimulation : MonoBehaviour
 		velocityY0 = new float[totalSize];
 
 		obstacles = new bool[totalSize];
+
+		// Reset job buffers when simulation size changes
+		ResetJobBuffers();
 
 		// Create or recreate visualization texture
 		if (fluidTexture != null)
@@ -542,14 +550,14 @@ public class FluidSimulation : MonoBehaviour
 	{
 		DiffuseWithJobs(b, x, x0, diff, dt);
 		float a = dt * diff * (currentSize - 2) * (currentSize - 2);
-		LinearSolve(b, x, x0, a, 1 + 6 * a);
+		LinearSolveWithJobs(b, x, x0, a, 1 + 6 * a);
 	}
-
-
-
 
 	void LinearSolve(int b, float[] x, float[] x0, float a, float c)
 	{
+		LinearSolveWithJobs(b, x, x0, a, c);
+
+		/*
 		for (int k = 0; k < 20; k++)
 		{
 			for (int i = 1; i < currentSize - 1; i++)
@@ -564,6 +572,7 @@ public class FluidSimulation : MonoBehaviour
 			}
 			SetBoundary(b, x);
 		}
+		*/
 	}
 
 	void Project(float[] velocX, float[] velocY, float[] p, float[] div)
@@ -975,12 +984,49 @@ public class FluidSimulation : MonoBehaviour
 		return new Vector2(sourcePositionX * currentSize, sourcePositionY * currentSize);
 	}
 
-	// Helper method to manually set the source position using grid coordinates
 	public void SetSourcePosition(float x, float y)
 	{
 		sourcePositionX = Mathf.Clamp01(x / currentSize);
 		sourcePositionY = Mathf.Clamp01(y / currentSize);
 	}
+
+	private void InitializeJobBuffers()
+	{
+		if (jobBuffersInitialized)
+			return;
+
+		int totalSize = currentSize * currentSize;
+		jobBuffer1 = new NativeArray<float>(totalSize, Allocator.Persistent);
+		jobBuffer2 = new NativeArray<float>(totalSize, Allocator.Persistent);
+		jobObstacles = new NativeArray<bool>(totalSize, Allocator.Persistent);
+		jobBuffersInitialized = true;
+	}
+
+	void OnDestroy()
+	{
+		if (jobBuffersInitialized)
+		{
+			jobBuffer1.Dispose();
+			jobBuffer2.Dispose();
+			jobObstacles.Dispose();
+			jobBuffersInitialized = false;
+		}
+	}
+	void ResetJobBuffers()
+	{
+		if (jobBuffersInitialized)
+		{
+			jobBuffer1.Dispose();
+			jobBuffer2.Dispose();
+			jobObstacles.Dispose();
+			jobBuffersInitialized = false;
+		}
+
+		// Reinitialize with new size
+		InitializeJobBuffers();
+	}
+
+	// Helper method to manually set the source position using grid coordinates
 
 	[BurstCompile]
 	public struct DiffuseJob : IJobParallelFor
@@ -1005,7 +1051,7 @@ public class FluidSimulation : MonoBehaviour
 			// Skip obstacles
 			if (obstacles[index])
 				return;
-			int p = this.size;
+			int p = size;
 			// IX function inlined
 			int getIndex(int x, int y) => x + y * p;
 
@@ -1016,6 +1062,57 @@ public class FluidSimulation : MonoBehaviour
 				input[getIndex(i, j + 1)] +
 				input[getIndex(i, j - 1)]
 			)) / c;
+		}
+	}
+
+	[BurstCompile]
+	public struct LinearSolveIterationJob : IJobParallelFor
+	{
+		[ReadOnly] public NativeArray<float> x0;
+		[ReadOnly] public NativeArray<float> xRead;  // Read from previous iteration
+		[WriteOnly] public NativeArray<float> xWrite; // Write to next iteration
+		[ReadOnly] public NativeArray<bool> obstacles;
+
+		public int size;
+		public float a;
+		public float c;
+
+		public void Execute(int index)
+		{
+			// Skip boundary cells
+			int i = index % size;
+			int j = index / size;
+
+			if (i <= 0 || i >= size - 1 || j <= 0 || j >= size - 1)
+			{
+				// Just copy the value for boundary cells
+				xWrite[index] = xRead[index];
+				return;
+			}
+
+			// Skip obstacles (just copy the value)
+			if (obstacles[index])
+			{
+				xWrite[index] = xRead[index];
+				return;
+			}
+
+			// Use proper indexing function to get surrounding values
+			int left = IX(i - 1, j);
+			int right = IX(i + 1, j);
+			int top = IX(i, j + 1);
+			int bottom = IX(i, j - 1);
+
+			// LinearSolve computation
+			xWrite[index] = (x0[index] + a * (
+				xRead[right] + xRead[left] +
+				xRead[top] + xRead[bottom]
+			)) / c;
+		}
+
+		int IX(int x, int y)
+		{
+			return x + y * size;
 		}
 	}
 
@@ -1145,6 +1242,82 @@ public class FluidSimulation : MonoBehaviour
 			buffer2.Dispose();
 			nativeObstacles.Dispose();
 		}
+	}
+
+	void LinearSolveWithJobs(int b, float[] x, float[] x0, float a, float c)
+	{
+		int totalSize = currentSize * currentSize;
+
+		// Ensure buffers are initialized
+		InitializeJobBuffers();
+
+		// Copy input data to native arrays
+		jobBuffer1.CopyFrom(x);
+		NativeArray<float> tempX0 = new NativeArray<float>(x0, Allocator.TempJob);
+		jobObstacles.CopyFrom(obstacles);
+
+		try
+		{
+			// Set up input and output buffers for double buffering
+			NativeArray<float> readBuffer = jobBuffer1;
+			NativeArray<float> writeBuffer = jobBuffer2;
+
+			// Run multiple iterations of the solver
+			for (int k = 0; k < 20; k++)
+			{
+				// Create the linear solve job
+				var linearSolveJob = new LinearSolveIterationJob
+				{
+					x0 = tempX0,
+					xRead = readBuffer,
+					xWrite = writeBuffer,
+					obstacles = jobObstacles,
+					size = currentSize,
+					a = a,
+					c = c
+				};
+
+				// Schedule the parallel job
+				JobHandle jobHandle = linearSolveJob.Schedule(totalSize, 64);
+
+				// Wait for the job to complete
+				jobHandle.Complete();
+
+				// Apply boundary conditions
+				ApplyBoundaryConditions(b, writeBuffer);
+
+				// Swap buffers for next iteration
+				var temp = readBuffer;
+				readBuffer = writeBuffer;
+				writeBuffer = temp;
+			}
+
+			// Copy results back to the original array (from readBuffer after the last swap)
+			readBuffer.CopyTo(x);
+		}
+		finally
+		{
+			// Only dispose the temporary x0 array
+			tempX0.Dispose();
+		}
+	}
+
+	void ApplyBoundaryConditions(int b, NativeArray<float> buffer)
+	{
+		// Create and execute boundary job
+		var boundaryJob = new BoundaryJob
+		{
+			x = buffer,
+			obstacles = new NativeArray<bool>(obstacles, Allocator.TempJob),
+			size = currentSize,
+			b = b
+		};
+
+		JobHandle boundaryHandle = boundaryJob.Schedule();
+		boundaryHandle.Complete();
+
+		// Clean up the temporary obstacles array
+		boundaryJob.obstacles.Dispose();
 	}
 }
 
