@@ -540,9 +540,13 @@ public class FluidSimulation : MonoBehaviour
 
 	void Diffuse(int b, float[] x, float[] x0, float diff, float dt)
 	{
+		DiffuseWithJobs(b, x, x0, diff, dt);
 		float a = dt * diff * (currentSize - 2) * (currentSize - 2);
 		LinearSolve(b, x, x0, a, 1 + 6 * a);
 	}
+
+
+
 
 	void LinearSolve(int b, float[] x, float[] x0, float a, float c)
 	{
@@ -890,7 +894,7 @@ public class FluidSimulation : MonoBehaviour
 
 		// Calculate the endpoint of the line
 		float endX = startX + Mathf.Cos(angle) * length;
-		float endY = startY + Mathf.Sin(angle) * length;
+		float endY = startY + Mathf.Sin(angle) * length;		
 
 		// Draw the line using Bresenham's algorithm
 		int x0 = startX;
@@ -977,4 +981,170 @@ public class FluidSimulation : MonoBehaviour
 		sourcePositionX = Mathf.Clamp01(x / currentSize);
 		sourcePositionY = Mathf.Clamp01(y / currentSize);
 	}
+
+	[BurstCompile]
+	public struct DiffuseJob : IJobParallelFor
+	{
+		[ReadOnly] public NativeArray<float> input;
+		public NativeArray<float> output;
+		[ReadOnly] public NativeArray<bool> obstacles;
+
+		public int size;
+		public float a;
+		public float c;
+
+		public void Execute(int index)
+		{
+			// Skip boundary cells
+			int i = index % size;
+			int j = index / size;
+
+			if (i <= 0 || i >= size - 1 || j <= 0 || j >= size - 1)
+				return;
+
+			// Skip obstacles
+			if (obstacles[index])
+				return;
+			int p = this.size;
+			// IX function inlined
+			int getIndex(int x, int y) => x + y * p;
+
+			// Read from input, write to output - no race condition
+			output[index] = (input[index] + a * (
+				input[getIndex(i + 1, j)] +
+				input[getIndex(i - 1, j)] +
+				input[getIndex(i, j + 1)] +
+				input[getIndex(i, j - 1)]
+			)) / c;
+		}
+	}
+
+	[BurstCompile]
+	public struct BoundaryJob : IJob
+	{
+		public NativeArray<float> x;
+		[ReadOnly] public NativeArray<bool> obstacles;
+		public int size;
+		public int b; // Boundary condition flag
+
+		public void Execute()
+		{
+			// IJob allows us to access any element of the arrays
+			// Handle outer grid boundaries
+			for (int i = 1; i < size - 1; i++)
+			{
+				x[IX(0, i)] = b == 1 ? -x[IX(1, i)] : x[IX(1, i)];
+				x[IX(size - 1, i)] = b == 1 ? -x[IX(size - 2, i)] : x[IX(size - 2, i)];
+				x[IX(i, 0)] = b == 2 ? -x[IX(i, 1)] : x[IX(i, 1)];
+				x[IX(i, size - 1)] = b == 2 ? -x[IX(i, size - 2)] : x[IX(i, size - 2)];
+			}
+
+			// Corner cells
+			x[IX(0, 0)] = 0.5f * (x[IX(1, 0)] + x[IX(0, 1)]);
+			x[IX(0, size - 1)] = 0.5f * (x[IX(1, size - 1)] + x[IX(0, size - 2)]);
+			x[IX(size - 1, 0)] = 0.5f * (x[IX(size - 2, 0)] + x[IX(size - 1, 1)]);
+			x[IX(size - 1, size - 1)] = 0.5f * (x[IX(size - 2, size - 1)] + x[IX(size - 1, size - 2)]);
+
+			// Handle internal obstacle boundaries
+			for (int i = 1; i < size - 1; i++)
+			{
+				for (int j = 1; j < size - 1; j++)
+				{
+					int idx = IX(i, j);
+					if (obstacles[idx])
+					{
+						if (b == 1 || b == 2)
+						{
+							x[idx] = 0;
+						}
+						else
+						{
+							float sum = 0;
+							int count = 0;
+
+							if (i > 0 && !obstacles[IX(i - 1, j)]) { sum += x[IX(i - 1, j)]; count++; }
+							if (i < size - 1 && !obstacles[IX(i + 1, j)]) { sum += x[IX(i + 1, j)]; count++; }
+							if (j > 0 && !obstacles[IX(i, j - 1)]) { sum += x[IX(i, j - 1)]; count++; }
+							if (j < size - 1 && !obstacles[IX(i, j + 1)]) { sum += x[IX(i, j + 1)]; count++; }
+
+							x[idx] = count > 0 ? sum / count : 0;
+						}
+					}
+				}
+			}
+		}
+
+		int IX(int x, int y)
+		{
+			return x + y * size;
+		}
+	}
+	
+	void DiffuseWithJobs(int b, float[] x, float[] x0, float diff, float dt)
+	{
+		int totalSize = currentSize * currentSize;
+		float a = dt * diff * (currentSize - 2) * (currentSize - 2);
+		float c = 1 + 6 * a;
+
+		// Create native arrays for double buffering
+		NativeArray<float> buffer1 = new NativeArray<float>(x0, Allocator.TempJob);
+		NativeArray<float> buffer2 = new NativeArray<float>(x0, Allocator.TempJob);
+		NativeArray<bool> nativeObstacles = new NativeArray<bool>(obstacles, Allocator.TempJob);
+
+		try
+		{
+			// Set up which buffer is input/output
+			NativeArray<float> input = buffer1;
+			NativeArray<float> output = buffer2;
+
+			// Multiple iterations of the solver
+			for (int k = 0; k < 20; k++)
+			{
+				// Create the diffusion job
+				var diffuseJob = new DiffuseJob
+				{
+					input = input,
+					output = output,
+					obstacles = nativeObstacles,
+					size = currentSize,
+					a = a,
+					c = c
+				};
+
+				// Schedule the parallel job
+				JobHandle jobHandle = diffuseJob.Schedule(totalSize, 64);
+
+				// Create boundary job to run after diffusion
+				var boundaryJob = new BoundaryJob
+				{
+					x = output,
+					obstacles = nativeObstacles,
+					size = currentSize,
+					b = b
+				};
+
+				// Schedule boundary job with dependency on diffusion
+				JobHandle boundaryHandle = boundaryJob.Schedule(jobHandle);
+
+				// Wait for completion before next iteration
+				boundaryHandle.Complete();
+
+				// Swap buffers for next iteration
+				var temp = input;
+				input = output;
+				output = temp;
+			}
+
+			// Final result is in the input buffer after the last swap
+			input.CopyTo(x);
+		}
+		finally
+		{
+			// Clean up native arrays
+			buffer1.Dispose();
+			buffer2.Dispose();
+			nativeObstacles.Dispose();
+		}
+	}
 }
+
