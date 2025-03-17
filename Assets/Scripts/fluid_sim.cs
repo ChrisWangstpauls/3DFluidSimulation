@@ -74,8 +74,8 @@ public class FluidSimulation : MonoBehaviour
 	public float obstacleHeight = 0.2f;
 	public Color obstacleColor = Color.gray;
 
-
-	// New visualization options
+	private NativeArray<float4> streamlineData;
+	private bool streamlineBuffersInitialized = false;
 
 	public enum ColorMode { SingleColor, Gradient, DensityBased, Streamlines }
 	public ColorMode colorMode = ColorMode.SingleColor;
@@ -316,14 +316,6 @@ public class FluidSimulation : MonoBehaviour
 				Debug.Log("Custom obstacle shape is selected but not implemented");
 				break;
 		}
-
-		// Debug information
-		int obstacleCount = 0;
-		for (int i = 0; i < obstacles.Length; i++)
-		{
-			if (obstacles[i]) obstacleCount++;
-		}
-		Debug.Log($"Obstacle setup complete: {obstacleCount} cells marked as obstacles");
 	}
 	void Update()
 	{
@@ -359,9 +351,6 @@ public class FluidSimulation : MonoBehaviour
 					Input.GetAxis("Mouse Y") * velocityScale);
 			}
 		}
-
-		Simulate();
-		UpdateVisualization();
 
 		Simulate();
 		UpdateVisualization();
@@ -552,6 +541,8 @@ public class FluidSimulation : MonoBehaviour
 		LinearSolveWithJobs(b, x, x0, a, 1 + 6 * a);
 	}
 
+
+
 	int IX(int x, int y)
 	{
 		return x + y * currentSize;
@@ -559,88 +550,95 @@ public class FluidSimulation : MonoBehaviour
 
 	void UpdateVisualization()
 	{
+		// Create our colors array
 		Color[] colours = new Color[currentSize * currentSize];
+		NativeArray<Color> nativeColors = new NativeArray<Color>(currentSize * currentSize, Allocator.TempJob);
 
-		for (int i = 0; i < currentSize; i++)
+		// Create native arrays for job data
+		NativeArray<float> nativeDensity = new NativeArray<float>(density, Allocator.TempJob);
+		NativeArray<bool> nativeObstacles = new NativeArray<bool>(obstacles, Allocator.TempJob);
+
+		// Create native arrays for gradient data if needed
+		NativeArray<Color> gradientColors = new NativeArray<Color>(1, Allocator.TempJob);
+		NativeArray<float> gradientTimes = new NativeArray<float>(1, Allocator.TempJob);
+		int gradientKeyCount = 0;
+
+		if (colorMode == ColorMode.Gradient && colourGradient != null)
 		{
-			for (int j = 0; j < currentSize; j++)
+			GradientColorKey[] colorKeys = colourGradient.colorKeys;
+			gradientKeyCount = colorKeys.Length;
+
+			// Dispose the initial arrays and create new ones with the right size
+			gradientColors.Dispose();
+			gradientTimes.Dispose();
+
+			gradientColors = new NativeArray<Color>(gradientKeyCount, Allocator.TempJob);
+			gradientTimes = new NativeArray<float>(gradientKeyCount, Allocator.TempJob);
+
+			for (int i = 0; i < gradientKeyCount; i++)
 			{
-				int idx = IX(i, j);
-
-				if (enableObstacle && obstacles[idx])
-				{
-					// Draw obstacles with specified color
-					colours[idx] = obstacleColor;
-					continue; // Skip regular fluid coloring for obstacle cells
-				}
-
-				float d = density[idx];
-				float normalizedD = d * colourIntensity;
-				Color pixelColor;
-
-				// Apply different color modes
-				switch (colorMode)
-				{
-					case ColorMode.DensityBased:
-						// Use different colors based on density thresholds
-						if (d < mediumDensityThreshold)
-						{
-							// Lerp between zero (black) and low density color
-							float t = d / mediumDensityThreshold;
-							pixelColor = Color.Lerp(Color.black, lowDensityColor, t);
-						}
-						else if (d < highDensityThreshold)
-						{
-							// Lerp between low and medium density colors
-							float t = (d - mediumDensityThreshold) / (highDensityThreshold - mediumDensityThreshold);
-							pixelColor = Color.Lerp(lowDensityColor, mediumDensityColor, t);
-						}
-						else
-						{
-							// Lerp between medium and high density colors
-							float t = Mathf.Min(1f, (d - highDensityThreshold) / highDensityThreshold);
-							pixelColor = Color.Lerp(mediumDensityColor, highDensityColor, t);
-						}
-						break;
-
-					case ColorMode.Gradient:
-						// Use gradient evaluation (normalizedD is clamped to 0-1 range)
-						pixelColor = colourGradient.Evaluate(Mathf.Clamp01(normalizedD));
-						break;
-
-					case ColorMode.SingleColor:
-					default:
-						// Use single colour with varying intensity
-						pixelColor = new Color(
-							fluidcolour.r * normalizedD,
-							fluidcolour.g * normalizedD,
-							fluidcolour.b * normalizedD,
-							fluidcolour.a
-						);
-						break;
-				}
-
-				colours[IX(i, j)] = pixelColor;
-
-				// Visualize source position if enabled
-				if (visualizeSourcePosition && enableCustomSource)
-				{
-					float sourceX = sourcePositionX * currentSize;
-					float sourceY = sourcePositionY * currentSize;
-					float visualMarkerRadius = 3; // Size of the position marker in pixels
-
-					float distSq = (i - sourceX) * (i - sourceX) + (j - sourceY) * (j - sourceY);
-					if (distSq < visualMarkerRadius * visualMarkerRadius)
-					{
-						// Mark the source position with a distinct color
-						colours[IX(i, j)] = sourcePositionColor;
-					}
-				}
-
-				colours[idx] = pixelColor;
-
+				gradientColors[i] = colorKeys[i].color;
+				gradientTimes[i] = colorKeys[i].time;
 			}
 		}
+
+		// colour change over time?
+		/*
+		float cycle = Mathf.PingPong(elapsedTime * 0.1f, 1f);
+		fluidcolour = Color.Lerp(Color.magenta, Color.cyan, cycle);
+		*/
+
+		try
+		{
+			// Create and schedule the job
+			var visualizationJob = new UpdateVisualizationJob
+			{
+				colors = nativeColors,
+				density = nativeDensity,
+				obstacles = nativeObstacles,
+				size = currentSize,
+				sourceX = sourcePositionX * currentSize,
+				sourceY = sourcePositionY * currentSize,
+				visualMarkerRadius = 3, // Size of the position marker in pixels
+				colorMode = colorMode,
+				fluidColor = fluidcolour,
+				obstacleColor = obstacleColor,
+				sourcePositionColor = sourcePositionColor,
+				colourIntensity = colourIntensity,
+				visualizeSourcePosition = visualizeSourcePosition,
+				enableCustomSource = enableCustomSource,
+				mediumDensityThreshold = mediumDensityThreshold,
+				highDensityThreshold = highDensityThreshold,
+				lowDensityColor = lowDensityColor,
+				mediumDensityColor = mediumDensityColor,
+				highDensityColor = highDensityColor,
+				gradientColors = gradientColors,
+				gradientTimes = gradientTimes,
+				gradientKeyCount = gradientKeyCount
+			};
+
+			// Schedule the job with one item per cell
+			JobHandle jobHandle = visualizationJob.Schedule(currentSize * currentSize, 64);
+
+			// Wait for the job to complete
+			jobHandle.Complete();
+
+			// Copy the results back to the managed array
+			nativeColors.CopyTo(colours);
+		}
+		finally
+		{
+			// Clean up native arrays
+			nativeColors.Dispose();
+			nativeDensity.Dispose();
+			nativeObstacles.Dispose();
+			gradientColors.Dispose();
+			gradientTimes.Dispose();
+		}
+
+		// Apply the colors to the texture
+		fluidTexture.SetPixels(colours);
+		fluidTexture.Apply();
 
 		// If streamlines are enabled, draw them
 		if (showStreamlines || colorMode == ColorMode.Streamlines)
@@ -648,28 +646,10 @@ public class FluidSimulation : MonoBehaviour
 			DrawStreamlines();
 		}
 
-		fluidTexture.SetPixels(colours);
-		fluidTexture.Apply();
-
 		// If in streamline mode, combine the textures
 		if (colorMode == ColorMode.Streamlines)
 		{
 			CombineTextures();
-		}
-
-		if (enableObstacle)
-		{
-			for (int i = 0; i < currentSize; i++)
-			{
-				for (int j = 0; j < currentSize; j++)
-				{
-					if (obstacles[IX(i, j)])
-					{
-						// Display obstacles with a fixed color
-						colours[IX(i, j)] = obstacleColor;
-					}
-				}
-			}
 		}
 	}
 
@@ -690,15 +670,19 @@ public class FluidSimulation : MonoBehaviour
 		fluidTexture.SetPixels(fluidColors);
 		fluidTexture.Apply();
 	}
+
 	void DrawStreamlines()
 	{
 		// Only process if streamline visualization is enabled
-		if (!showStreamlines) return;
+		if (!showStreamlines && colorMode != ColorMode.Streamlines) return;
 
 		// Calculate the skip value based on density
 		int skip = Mathf.Max(1, currentSize / (streamlineDensity * 10));
 
-		// Create a new texture if needed or clear the existing one
+		// Calculate how many streamlines we need to process
+		int streamlineCount = (currentSize / skip) * (currentSize / skip);
+
+		// Initialize the streamline texture if needed
 		if (streamlineTexture == null || streamlineTexture.width != currentSize)
 		{
 			if (streamlineTexture != null) Destroy(streamlineTexture);
@@ -706,121 +690,77 @@ public class FluidSimulation : MonoBehaviour
 			streamlineTexture.filterMode = FilterMode.Point;
 		}
 
-		// Clear the texture
-		Color[] clearColors = new Color[currentSize * currentSize];
-		for (int i = 0; i < clearColors.Length; i++)
-			clearColors[i] = new Color(0, 0, 0, 0);
-		streamlineTexture.SetPixels(clearColors);
+		// Initialize or resize job arrays if needed
+		InitializeStreamlineBuffers(streamlineCount);
 
-		// Draw streamlines
-		for (int i = skip; i < currentSize - skip; i += skip)
+		// Get texture colors for processing
+		Color[] colors = new Color[currentSize * currentSize];
+
+		// Create a native array for line segments
+		NativeArray<float4> lineSegments = new NativeArray<float4>(streamlineCount, Allocator.TempJob);
+
+		try
 		{
-			for (int j = skip; j < currentSize - skip; j += skip)
+			// Calculate streamlines in parallel
+			var calculationJob = new StreamlineCalculationJob
 			{
-				int idx = IX(i, j);
-				float vx = velocityX[idx];
-				float vy = velocityY[idx];
+				velocX = new NativeArray<float>(velocityX, Allocator.TempJob),
+				velocY = new NativeArray<float>(velocityY, Allocator.TempJob),
+				streamlines = streamlineData,
+				obstacles = new NativeArray<bool>(obstacles, Allocator.TempJob),
+				size = currentSize,
+				skip = skip,
+				streamlineScale = streamlineScale
+			};
 
-				// Calculate velocity magnitude
-				float magnitude = Mathf.Sqrt(vx * vx + vy * vy);
+			JobHandle calcHandle = calculationJob.Schedule(streamlineCount, 32);
 
-				// Skip cells with very little flow
-				if (magnitude < 0.01f) continue;
+			// Generate line segments
+			var lineSegmentJob = new StreamlineDrawJob
+			{
+				streamlines = streamlineData,
+				lineSegments = lineSegments,
+				textureSize = currentSize,
+				halfThickness = streamlineThickness / 2f
+			};
 
-				// Calculate line length based on velocity magnitude and scale
-				float lineLength = Mathf.Min(skip - 1, magnitude * streamlineScale);
+			JobHandle lineSegmentHandle = lineSegmentJob.Schedule(streamlineCount, 16, calcHandle);
+			lineSegmentHandle.Complete();
 
-				// Calculate the angle of the velocity
-				float angle = Mathf.Atan2(vy, vx);
+			// Draw all line segments on CPU (no race conditions)
+			DrawLineSegmentsToTexture(lineSegments, colors);
 
-				// Draw a line at the calculated angle and length
-				DrawLine(i, j, angle, lineLength);
-			}
+			// Clean up the temporary arrays
+			calculationJob.velocX.Dispose();
+			calculationJob.velocY.Dispose();
+			calculationJob.obstacles.Dispose();
+		}
+		finally
+		{
+			// Ensure always dispose the temp native array
+			lineSegments.Dispose();
 		}
 
-		// Apply the texture changes
+		// Apply colors to the texture
+		streamlineTexture.SetPixels(colors);
 		streamlineTexture.Apply();
 	}
 
-	void DrawLine(int startX, int startY, float angle, float length)
+	void InitializeStreamlineBuffers(int streamlineCount)
 	{
-		float halfThickness = streamlineThickness / 2f;
+		if (streamlineBuffersInitialized && streamlineData.Length == streamlineCount)
+			return;
 
-		// Calculate the endpoint of the line
-		float endX = startX + Mathf.Cos(angle) * length;
-		float endY = startY + Mathf.Sin(angle) * length;
-
-		// Draw the line using Bresenham's algorithm
-		int x0 = startX;
-		int y0 = startY;
-		int x1 = Mathf.RoundToInt(endX);
-		int y1 = Mathf.RoundToInt(endY);
-
-		bool steep = Mathf.Abs(y1 - y0) > Mathf.Abs(x1 - x0);
-		if (steep)
+		// Clean up existing buffers if they exist
+		if (streamlineBuffersInitialized)
 		{
-			// Swap x0, y0
-			int temp = x0;
-			x0 = y0;
-			y0 = temp;
-
-			// Swap x1, y1
-			temp = x1;
-			x1 = y1;
-			y1 = temp;
+			streamlineData.Dispose();
+			streamlineBuffersInitialized = false;
 		}
 
-		if (x0 > x1)
-		{
-			// Swap x0, x1
-			int temp = x0;
-			x0 = x1;
-			x1 = temp;
-
-			// Swap y0, y1
-			temp = y0;
-			y0 = y1;
-			y1 = temp;
-		}
-
-		int dx = x1 - x0;
-		int dy = Mathf.Abs(y1 - y0);
-		int error = dx / 2;
-
-		int y = y0;
-		int ystep = (y0 < y1) ? 1 : -1;
-
-		for (int x = x0; x <= x1; x++)
-		{
-			// Draw the point with thickness
-			for (int tx = -Mathf.FloorToInt(halfThickness); tx <= halfThickness; tx++)
-			{
-				for (int ty = -Mathf.FloorToInt(halfThickness); ty <= halfThickness; ty++)
-				{
-					int drawX = steep ? y + tx : x + tx;
-					int drawY = steep ? x + ty : y + ty;
-
-					// Check bounds
-					if (drawX >= 0 && drawX < currentSize && drawY >= 0 && drawY < currentSize)
-					{
-						streamlineTexture.SetPixel(drawX, drawY, streamlineColor);
-					}
-				}
-			}
-
-			error -= dy;
-			if (error < 0)
-			{
-				y += ystep;
-				error += dx;
-			}
-		}
-	}
-
-	// Helper method for debugging resolution
-	public string GetCurrentResolution()
-	{
-		return $"{currentSize}x{currentSize} (Base: {size}, Multiplier: {resolutionMultiplier:F2})";
+		// Create new buffers
+		streamlineData = new NativeArray<float4>(streamlineCount, Allocator.Persistent);
+		streamlineBuffersInitialized = true;
 	}
 
 	// Helper method to get the current source position	
@@ -855,6 +795,13 @@ public class FluidSimulation : MonoBehaviour
 			jobBuffer2.Dispose();
 			jobObstacles.Dispose();
 			jobBuffersInitialized = false;
+		}
+
+		// Clean up streamline buffers
+		if (streamlineBuffersInitialized)
+		{
+			streamlineData.Dispose();
+			streamlineBuffersInitialized = false;
 		}
 	}
 	void ResetJobBuffers()
@@ -1144,7 +1091,6 @@ public class FluidSimulation : MonoBehaviour
 			return x + y * size;
 		}
 	}
-
 
 	void DiffuseWithJobs(int b, float[] x, float[] x0, float diff, float dt)
 	{
@@ -1507,5 +1453,332 @@ public class FluidSimulation : MonoBehaviour
 
 		// Clean up the temporary obstacles array
 		boundaryJob.obstacles.Dispose();
+	}
+
+	[BurstCompile]
+	public struct ClearTextureJob : IJobParallelFor
+	{
+		[WriteOnly] public NativeArray<Color> colors;
+
+		public void Execute(int index)
+		{
+			colors[index] = new Color(0, 0, 0, 0);
+		}
+	}
+
+	[BurstCompile]
+	public struct StreamlineCalculationJob : IJobParallelFor
+	{
+		[ReadOnly] public NativeArray<float> velocX;
+		[ReadOnly] public NativeArray<float> velocY;
+		[WriteOnly] public NativeArray<float4> streamlines;
+		[ReadOnly] public NativeArray<bool> obstacles;
+
+		public int size;
+		public int skip;
+		public float streamlineScale;
+
+		public void Execute(int index)
+		{
+			// Calculate 2D position from index
+			int x = index % (size / skip);
+			int y = index / (size / skip);
+
+			// Convert to actual grid coordinates
+			int i = x * skip + skip;
+			int j = y * skip + skip;
+
+			// Skip if outside the valid range
+			if (i <= 0 || i >= size - 1 || j <= 0 || j >= size - 1)
+			{
+				streamlines[index] = new float4(i, j, 0, 0); // Mark as invalid
+				return;
+			}
+
+			int idx = IX(i, j);
+
+			// Skip obstacles
+			if (obstacles[idx])
+			{
+				streamlines[index] = new float4(i, j, 0, 0); // Mark as invalid
+				return;
+			}
+
+			float vx = velocX[idx];
+			float vy = velocY[idx];
+
+			// Calculate velocity magnitude
+			float magnitude = math.sqrt(vx * vx + vy * vy);
+
+			// Skip cells with very little flow
+			if (magnitude < 0.01f)
+			{
+				streamlines[index] = new float4(i, j, 0, 0); // Mark as invalid
+				return;
+			}
+
+			// Calculate line length based on velocity magnitude and scale
+			float lineLength = math.min(skip - 1, magnitude * streamlineScale);
+
+			// Calculate the angle of the velocity
+			float angle = math.atan2(vy, vx);
+
+			// Store the streamline information
+			streamlines[index] = new float4(i, j, angle, lineLength);
+		}
+
+		int IX(int x, int y)
+		{
+			return x + y * size;
+		}
+	}
+
+	[BurstCompile]
+	public struct StreamlineDrawJob : IJobParallelFor
+	{
+		[ReadOnly] public NativeArray<float4> streamlines;
+		// Instead of writing directly to texture colors, we'll create line segments
+		[WriteOnly] public NativeArray<float4> lineSegments; // x,y,endX,endY
+		public int textureSize;
+		public float halfThickness;
+
+		public void Execute(int index)
+		{
+			float4 streamline = streamlines[index];
+
+			// Skip invalid streamlines
+			if (streamline.w <= 0)
+			{
+				// Store a "null" line segment
+				lineSegments[index] = new float4(-1, -1, -1, -1);
+				return;
+			}
+
+			int startX = (int)streamline.x;
+			int startY = (int)streamline.y;
+			float angle = streamline.z;
+			float length = streamline.w;
+
+			// Calculate the endpoint
+			float endX = startX + math.cos(angle) * length;
+			float endY = startY + math.sin(angle) * length;
+
+			// Store line segment data
+			lineSegments[index] = new float4(startX, startY, endX, endY);
+		}
+	}
+
+	// Add a new method to draw line segments on the CPU after the job completes
+	private void DrawLineSegmentsToTexture(NativeArray<float4> lineSegments, Color[] textureColors)
+	{
+		for (int i = 0; i < lineSegments.Length; i++)
+		{
+			float4 segment = lineSegments[i];
+
+			// Skip invalid segments
+			if (segment.x < 0) continue;
+
+			// Draw each line segment using Bresenham's algorithm
+			DrawBresenhamLine(
+				(int)segment.x, (int)segment.y,
+				(int)math.round(segment.z), (int)math.round(segment.w),
+				textureColors, streamlineColor, currentSize, streamlineThickness
+			);
+		}
+	}
+
+	private void DrawBresenhamLine(int x0, int y0, int x1, int y1, Color[] colors, Color lineColor, int size, float thickness)
+	{
+		bool steep = Mathf.Abs(y1 - y0) > Mathf.Abs(x1 - x0);
+		if (steep)
+		{
+			// Swap x0, y0
+			int temp = x0;
+			x0 = y0;
+			y0 = temp;
+
+			// Swap x1, y1
+			temp = x1;
+			x1 = y1;
+			y1 = temp;
+		}
+
+		if (x0 > x1)
+		{
+			// Swap x0, x1
+			int temp = x0;
+			x0 = x1;
+			x1 = temp;
+
+			// Swap y0, y1
+			temp = y0;
+			y0 = y1;
+			y1 = temp;
+		}
+
+		int dx = x1 - x0;
+		int dy = Mathf.Abs(y1 - y0);
+		int error = dx / 2;
+
+		int y = y0;
+		int ystep = (y0 < y1) ? 1 : -1;
+		int halfThick = (int)Mathf.Floor(thickness / 2);
+
+		for (int x = x0; x <= x1; x++)
+		{
+			// Draw the point with thickness
+			for (int tx = -halfThick; tx <= halfThick; tx++)
+			{
+				for (int ty = -halfThick; ty <= halfThick; ty++)
+				{
+					int drawX = steep ? y + tx : x + tx;
+					int drawY = steep ? x + ty : y + ty;
+
+					// Check bounds
+					if (drawX >= 0 && drawX < size && drawY >= 0 && drawY < size)
+					{
+						int pixelIndex = drawX + drawY * size;
+						if (pixelIndex >= 0 && pixelIndex < colors.Length)
+						{
+							colors[pixelIndex] = lineColor;
+						}
+					}
+				}
+			}
+
+			error -= dy;
+			if (error < 0)
+			{
+				y += ystep;
+				error += dx;
+			}
+		}
+	}
+
+	[BurstCompile]
+	public struct UpdateVisualizationJob : IJobParallelFor
+	{
+		[WriteOnly] public NativeArray<Color> colors;
+		[ReadOnly] public NativeArray<float> density;
+		[ReadOnly] public NativeArray<bool> obstacles;
+
+		// Visualization parameters
+		public int size;
+		public float sourceX;
+		public float sourceY;
+		public float visualMarkerRadius;
+		public ColorMode colorMode;
+		public Color fluidColor;
+		public Color obstacleColor;
+		public Color sourcePositionColor;
+		public float colourIntensity;
+		public bool visualizeSourcePosition;
+		public bool enableCustomSource;
+		public float mediumDensityThreshold;
+		public float highDensityThreshold;
+		public Color lowDensityColor;
+		public Color mediumDensityColor;
+		public Color highDensityColor;
+
+		// Gradient data 
+		[ReadOnly] public NativeArray<Color> gradientColors;
+		[ReadOnly] public NativeArray<float> gradientTimes;
+		public int gradientKeyCount;
+
+		public void Execute(int index)
+		{
+			int i = index % size;
+			int j = index / size;
+			int idx = i + j * size;
+
+			if (obstacles[idx])
+			{
+				// Draw obstacles with specified color
+				colors[idx] = obstacleColor;
+				return; // Skip regular fluid coloring for obstacle cells
+			}
+
+			float d = density[idx];
+			float normalizedD = d * colourIntensity;
+			Color pixelColor;
+
+			// Apply different color modes
+			switch (colorMode)
+			{
+				case ColorMode.DensityBased:
+					// Use different colors based on density thresholds
+					if (d < mediumDensityThreshold)
+					{
+						// Lerp between zero (black) and low density color
+						float t = d / mediumDensityThreshold;
+						pixelColor = Color.Lerp(Color.black, lowDensityColor, t);
+					}
+					else if (d < highDensityThreshold)
+					{
+						// Lerp between low and medium density colors
+						float t = (d - mediumDensityThreshold) / (highDensityThreshold - mediumDensityThreshold);
+						pixelColor = Color.Lerp(lowDensityColor, mediumDensityColor, t);
+					}
+					else
+					{
+						// Lerp between medium and high density colors
+						float t = math.min(1f, (d - highDensityThreshold) / highDensityThreshold);
+						pixelColor = Color.Lerp(mediumDensityColor, highDensityColor, t);
+					}
+					break;
+
+				case ColorMode.Gradient:
+					// Use gradient evaluation (normalizedD is clamped to 0-1 range)
+					float clampedValue = math.clamp(normalizedD, 0f, 1f);
+					pixelColor = EvaluateGradient(clampedValue);
+					break;
+
+				case ColorMode.SingleColor:
+				default:
+					// Use single colour with varying intensity
+					pixelColor = new Color(
+						fluidColor.r * normalizedD,
+						fluidColor.g * normalizedD,
+						fluidColor.b * normalizedD,
+						fluidColor.a
+					);
+					break;
+			}
+
+			colors[idx] = pixelColor;
+
+			// Visualize source position if enabled
+			if (visualizeSourcePosition && enableCustomSource)
+			{
+				float distSq = (i - sourceX) * (i - sourceX) + (j - sourceY) * (j - sourceY);
+				if (distSq < visualMarkerRadius * visualMarkerRadius)
+				{
+					// Mark the source position with a distinct color
+					colors[idx] = sourcePositionColor;
+				}
+			}
+		}
+
+		private Color EvaluateGradient(float time)
+		{
+			if (gradientKeyCount <= 0)
+				return Color.white;
+
+			if (time <= gradientTimes[0])
+				return gradientColors[0];
+
+			if (time >= gradientTimes[gradientKeyCount - 1])
+				return gradientColors[gradientKeyCount - 1];
+
+			// Find the keys we need to interpolate between
+			int index = 0;
+			while (index < gradientKeyCount - 1 && time > gradientTimes[index + 1])
+			{
+				index++;
+			}
+
+			float t = (time - gradientTimes[index]) / (gradientTimes[index + 1] - gradientTimes[index]);
+			return Color.Lerp(gradientColors[index], gradientColors[index + 1], t);
+		}
 	}
 }
