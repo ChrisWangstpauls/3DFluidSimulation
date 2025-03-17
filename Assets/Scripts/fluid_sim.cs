@@ -10,6 +10,7 @@ public class FluidSimulation : MonoBehaviour
 	[Header("Simulation Parameters")]
 	[Range(32, 512)]
 	public int size = 128;
+
 	[Tooltip("Physical size of the simulation area")]
 	public float physicalSize = 1.0f;
 	[Range(0.1f, 10f)]
@@ -28,7 +29,7 @@ public class FluidSimulation : MonoBehaviour
 	public float sourceDirection = 0f;
 	[Range(1f, 50f)]
 	public float sourceVelocity = 10f;
-	[Range(0.1f, 5f)]
+	[Range(0.1f, 10f)]
 	public float sourceRadius = 1f;
 	[Range(0.1f, 5f)]
 	public float sourcePulseRate = 1f;
@@ -51,12 +52,21 @@ public class FluidSimulation : MonoBehaviour
 	public bool showStreamlines = false;
 	[Range(1f, 5f)]
 	public int streamlineDensity = 4; // Controls how many cells are skipped
-	[Range(1f, 5f)]
+	[Range(1f, 10f)]
 	public float streamlineScale = 1.0f; // Scales the length of the lines
 	public Color streamlineColor = Color.white;
-	[Range(0.5f, 3f)]
+	[Range(0.1f, 3f)]
 	public float streamlineThickness = 1.0f;
 	private Texture2D streamlineTexture;
+
+	[Header("Pressure Visualization")]
+	public Color lowPressureColor = Color.blue;
+	public Color neutralPressureColor = Color.white;
+	public Color highPressureColor = Color.red;
+	[Range(-100f, 100f)]
+	public float lowPressureThreshold = -50f;
+	[Range(-100f, 1000f)]
+	public float highPressureThreshold = 50f;
 
 	[Header("Obstacle Settings")]
 	public bool enableObstacle = true;
@@ -66,18 +76,18 @@ public class FluidSimulation : MonoBehaviour
 	public float obstaclePositionX = 0.5f;
 	[Range(0f, 1f)]
 	public float obstaclePositionY = 0.5f;
-	[Range(0.005f, 0.5f)]
+	[Range(0.01f, 0.5f)]
 	public float obstacleRadius = 0.1f;
-	[Range(0.05f, 0.5f)]
+	[Range(0.01f, 0.5f)]
 	public float obstacleWidth = 0.2f;
-	[Range(0.05f, 0.5f)]
+	[Range(0.01f, 0.5f)]
 	public float obstacleHeight = 0.2f;
 	public Color obstacleColor = Color.gray;
 
 	private NativeArray<float4> streamlineData;
 	private bool streamlineBuffersInitialized = false;
 
-	public enum ColorMode { SingleColor, Gradient, DensityBased, Streamlines }
+	public enum ColorMode { SingleColor, Gradient, DensityBased, PressureBased, Streamlines }
 	public ColorMode colorMode = ColorMode.SingleColor;
 	public Color lowDensityColor = Color.blue;
 	public Color mediumDensityColor = Color.green;
@@ -95,6 +105,7 @@ public class FluidSimulation : MonoBehaviour
 	private float[] velocityY;
 	private float[] velocityX0;
 	private float[] velocityY0;
+	private float[] pressure; 
 
 	private int currentSize;
 	private float cellSize;
@@ -183,11 +194,11 @@ public class FluidSimulation : MonoBehaviour
 		// Initialize arrays
 		int totalSize = currentSize * currentSize;
 		density = new float[totalSize];
+		pressure = new float[totalSize];
 		velocityX = new float[totalSize];
 		velocityY = new float[totalSize];
 		velocityX0 = new float[totalSize];
 		velocityY0 = new float[totalSize];
-
 		obstacles = new bool[totalSize];
 
 		// Reset job buffers when simulation size changes
@@ -548,18 +559,17 @@ public class FluidSimulation : MonoBehaviour
 
 	void UpdateVisualization()
 	{
-		// Create our colors array
 		Color[] colours = new Color[currentSize * currentSize];
 		NativeArray<Color> nativeColors = new NativeArray<Color>(currentSize * currentSize, Allocator.TempJob);
 
-		// Create native arrays for job data
 		NativeArray<float> nativeDensity = new NativeArray<float>(density, Allocator.TempJob);
 		NativeArray<bool> nativeObstacles = new NativeArray<bool>(obstacles, Allocator.TempJob);
 
-		// Create native arrays for gradient data if needed
 		NativeArray<Color> gradientColors = new NativeArray<Color>(1, Allocator.TempJob);
 		NativeArray<float> gradientTimes = new NativeArray<float>(1, Allocator.TempJob);
 		int gradientKeyCount = 0;
+
+		NativeArray<float> nativePressure = new NativeArray<float>(pressure, Allocator.TempJob);
 
 		if (colorMode == ColorMode.Gradient && colourGradient != null)
 		{
@@ -612,10 +622,18 @@ public class FluidSimulation : MonoBehaviour
 				highDensityColor = highDensityColor,
 				gradientColors = gradientColors,
 				gradientTimes = gradientTimes,
-				gradientKeyCount = gradientKeyCount
+				gradientKeyCount = gradientKeyCount,
+				pressure = nativePressure,
+				lowPressureColor = lowPressureColor,
+				neutralPressureColor = neutralPressureColor,
+				highPressureColor = highPressureColor,
+				lowPressureThreshold = lowPressureThreshold,
+				highPressureThreshold = highPressureThreshold,
 			};
 
 			// Schedule the job with one item per cell
+
+			//visualizationJob.pressure = nativePressure;
 			JobHandle jobHandle = visualizationJob.Schedule(currentSize * currentSize, 64);
 
 			// Wait for the job to complete
@@ -632,6 +650,7 @@ public class FluidSimulation : MonoBehaviour
 			nativeObstacles.Dispose();
 			gradientColors.Dispose();
 			gradientTimes.Dispose();
+			nativePressure.Dispose();
 		}
 
 		// Apply the colors to the texture
@@ -1306,6 +1325,9 @@ public class FluidSimulation : MonoBehaviour
 			// Copy results back to managed arrays
 			nativeVelocX.CopyTo(velocX);
 			nativeVelocY.CopyTo(velocY);
+			nativeP.CopyTo(p);
+			nativeP.CopyTo(pressure); 
+
 		}
 		finally
 		{
@@ -1659,6 +1681,7 @@ public class FluidSimulation : MonoBehaviour
 		[WriteOnly] public NativeArray<Color> colors;
 		[ReadOnly] public NativeArray<float> density;
 		[ReadOnly] public NativeArray<bool> obstacles;
+		[ReadOnly] public NativeArray<float> pressure;
 
 		// Visualization parameters
 		public int size;
@@ -1677,6 +1700,12 @@ public class FluidSimulation : MonoBehaviour
 		public Color lowDensityColor;
 		public Color mediumDensityColor;
 		public Color highDensityColor;
+		public bool usePressure;
+		public Color lowPressureColor;
+		public Color neutralPressureColor;
+		public Color highPressureColor;
+		public float lowPressureThreshold;
+		public float highPressureThreshold;
 
 		// Gradient data 
 		[ReadOnly] public NativeArray<Color> gradientColors;
@@ -1740,6 +1769,25 @@ public class FluidSimulation : MonoBehaviour
 						fluidColor.b * normalizedD,
 						fluidColor.a
 					);
+					break;
+
+				case ColorMode.PressureBased:
+					float p = pressure[idx];
+					if (p < lowPressureThreshold)
+					{
+						float t = p / lowPressureThreshold; // Normalize to [0,1]
+						pixelColor = Color.Lerp(lowPressureColor, neutralPressureColor, 1f + t);
+					}
+					else if (p <= highPressureThreshold)
+					{
+						float t = (p - lowPressureThreshold) / (highPressureThreshold - lowPressureThreshold);
+						pixelColor = Color.Lerp(neutralPressureColor, highPressureColor, t);
+					}
+					else
+					{
+						float t = math.min(1f, (p - highPressureThreshold) / highPressureThreshold);
+						pixelColor = Color.Lerp(highPressureColor, new Color(1f, 0.5f, 0f), t); // Transition to orange for very high pressure
+					}
 					break;
 			}
 

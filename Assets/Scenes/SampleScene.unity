@@ -159,10 +159,10 @@ MonoBehaviour:
   timeStep: 0.003
   autoAdjustParameters: 1
   enableCustomSource: 1
-  sourceStrength: 102
+  sourceStrength: 5
   sourceEmitsVelocity: 1
   sourceDirection: 0
-  sourceVelocity: 39.2
+  sourceVelocity: 10
   sourceRadius: 2.42
   sourcePulseRate: 5
   sourcePulsing: 0
@@ -171,7 +171,7 @@ MonoBehaviour:
   moveSourceWithMouse: 1
   sourcePositionKey: 304
   fluidcolour: {r: 1, g: 1, b: 1, a: 1}
-  colourIntensity: 1
+  colourIntensity: 0.1
   useGradient: 1
   colourGradient:
     serializedVersion: 2
@@ -208,7 +208,11 @@ MonoBehaviour:
   streamlineScale: 5
   streamlineColor: {r: 1, g: 1, b: 1, a: 1}
   streamlineThickness: 0.5
-  showPressure: 0
+  lowPressureColor: {r: 0, g: 0, b: 1, a: 1}
+  neutralPressureColor: {r: 1, g: 1, b: 1, a: 1}
+  highPressureColor: {r: 1, g: 0, b: 0, a: 1}
+  lowPressureThreshold: -50
+  highPressureThreshold: 50
   enableObstacle: 0
   obstacleShape: 0
   obstaclePositionX: 0.5
