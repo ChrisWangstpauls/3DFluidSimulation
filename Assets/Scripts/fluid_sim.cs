@@ -541,8 +541,6 @@ public class FluidSimulation : MonoBehaviour
 		LinearSolveWithJobs(b, x, x0, a, 1 + 6 * a);
 	}
 
-
-
 	int IX(int x, int y)
 	{
 		return x + y * currentSize;
@@ -679,7 +677,7 @@ public class FluidSimulation : MonoBehaviour
 		// Calculate the skip value based on density
 		int skip = Mathf.Max(1, currentSize / (streamlineDensity * 10));
 
-		// Calculate how many streamlines we need to process
+		// Calculate how many streamlines needed to process
 		int streamlineCount = (currentSize / skip) * (currentSize / skip);
 
 		// Initialize the streamline texture if needed
@@ -1537,7 +1535,7 @@ public class FluidSimulation : MonoBehaviour
 	public struct StreamlineDrawJob : IJobParallelFor
 	{
 		[ReadOnly] public NativeArray<float4> streamlines;
-		// Instead of writing directly to texture colors, we'll create line segments
+		// create line segments
 		[WriteOnly] public NativeArray<float4> lineSegments; // x,y,endX,endY
 		public int textureSize;
 		public float halfThickness;
@@ -1770,7 +1768,7 @@ public class FluidSimulation : MonoBehaviour
 			if (time >= gradientTimes[gradientKeyCount - 1])
 				return gradientColors[gradientKeyCount - 1];
 
-			// Find the keys we need to interpolate between
+			// Find the keys needed to interpolate between
 			int index = 0;
 			while (index < gradientKeyCount - 1 && time > gradientTimes[index + 1])
 			{
