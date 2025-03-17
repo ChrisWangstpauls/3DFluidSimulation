@@ -514,21 +514,20 @@ public class FluidSimulation : MonoBehaviour
 		Diffuse(1, velocityX0, velocityX, visc, dt);
 		Diffuse(2, velocityY0, velocityY, visc, dt);
 
-		Project(velocityX0, velocityY0, velocityX, velocityY);
+		ProjectWithJobs(velocityX0, velocityY0, velocityX, velocityY);
 
-		Advect(1, velocityX, velocityX0, velocityX0, velocityY0, dt);
-		Advect(2, velocityY, velocityY0, velocityX0, velocityY0, dt);
+		AdvectWithJobs(1, velocityX, velocityX0, velocityX0, velocityY0, dt);
+		AdvectWithJobs(2, velocityY, velocityY0, velocityX0, velocityY0, dt);
 
-		Project(velocityX, velocityY, velocityX0, velocityY0);
+		ProjectWithJobs(velocityX, velocityY, velocityX0, velocityY0);
 	}
 
 	void DensityStep(float dt, float diff)
 	{
 		float[] densityTemp = new float[currentSize * currentSize];
 		Diffuse(0, densityTemp, density, diff, dt);
-		Advect(0, density, densityTemp, velocityX, velocityY, dt);
+		AdvectWithJobs(0, density, densityTemp, velocityX, velocityY, dt);
 	}
-
 	void AddDensity(float x, float y, float amount)
 	{
 		int i = Mathf.Clamp((int)x, 0, currentSize - 1);
@@ -656,7 +655,7 @@ public class FluidSimulation : MonoBehaviour
 
 	void SetBoundary(int b, float[] x)
 	{
-		// Handle outer grid boundaries (unchanged)
+		// Handle outer grid boundaries 
 		for (int i = 1; i < currentSize - 1; i++)
 		{
 			x[IX(0, i)] = b == 1 ? -x[IX(1, i)] : x[IX(1, i)];
@@ -665,7 +664,7 @@ public class FluidSimulation : MonoBehaviour
 			x[IX(i, currentSize - 1)] = b == 2 ? -x[IX(i, currentSize - 2)] : x[IX(i, currentSize - 2)];
 		}
 
-		// Corner cells (unchanged)
+		// Corner cells 
 		x[IX(0, 0)] = 0.5f * (x[IX(1, 0)] + x[IX(0, 1)]);
 		x[IX(0, currentSize - 1)] = 0.5f * (x[IX(1, currentSize - 1)] + x[IX(0, currentSize - 2)]);
 		x[IX(currentSize - 1, 0)] = 0.5f * (x[IX(currentSize - 2, 0)] + x[IX(currentSize - 1, 1)]);
@@ -903,7 +902,7 @@ public class FluidSimulation : MonoBehaviour
 
 		// Calculate the endpoint of the line
 		float endX = startX + Mathf.Cos(angle) * length;
-		float endY = startY + Mathf.Sin(angle) * length;		
+		float endY = startY + Mathf.Sin(angle) * length;
 
 		// Draw the line using Bresenham's algorithm
 		int x0 = startX;
@@ -1066,6 +1065,129 @@ public class FluidSimulation : MonoBehaviour
 	}
 
 	[BurstCompile]
+	public struct ProjectDivergenceJob : IJobParallelFor
+	{
+		[WriteOnly] public NativeArray<float> div;
+		[WriteOnly] public NativeArray<float> p;
+		[ReadOnly] public NativeArray<float> velocX;
+		[ReadOnly] public NativeArray<float> velocY;
+		public int size;
+
+		public void Execute(int index)
+		{
+			// Skip boundary cells
+			int i = index % size;
+			int j = index / size;
+
+			if (i <= 0 || i >= size - 1 || j <= 0 || j >= size - 1)
+				return;
+
+			int s = size;
+			int IX(int x, int y) => x + y * s;
+
+			div[index] = -0.5f * (
+				velocX[IX(i + 1, j)] - velocX[IX(i - 1, j)] +
+				velocY[IX(i, j + 1)] - velocY[IX(i, j - 1)]
+			) / size;
+
+			p[index] = 0;
+		}
+	}
+
+	[BurstCompile]
+	public struct ProjectVelocityAdjustJob : IJobParallelFor
+	{
+		public NativeArray<float> velocX;
+		public NativeArray<float> velocY;
+		[ReadOnly] public NativeArray<float> p;
+		[ReadOnly] public NativeArray<bool> obstacles;
+		public int size;
+
+		public void Execute(int index)
+		{
+			// Skip boundary cells
+			int i = index % size;
+			int j = index / size;
+
+			if (i <= 0 || i >= size - 1 || j <= 0 || j >= size - 1)
+				return;
+
+			// Skip obstacles
+			if (obstacles[index])
+				return;
+
+			int s = size;
+			int IX(int x, int y) => x + y * s;
+
+			velocX[index] -= 0.5f * (p[IX(i + 1, j)] - p[IX(i - 1, j)]) * size;
+			velocY[index] -= 0.5f * (p[IX(i, j + 1)] - p[IX(i, j - 1)]) * size;
+		}
+	}
+
+	[BurstCompile]
+	public struct AdvectJob : IJobParallelFor
+	{
+		[ReadOnly] public NativeArray<float> d0;
+		[WriteOnly] public NativeArray<float> d;
+		[ReadOnly] public NativeArray<float> velocX;
+		[ReadOnly] public NativeArray<float> velocY;
+		[ReadOnly] public NativeArray<bool> obstacles;
+
+		public int size;
+		public int b;
+		public float dt0;
+
+		public void Execute(int index)
+		{
+			// Skip boundary cells
+			int i = index % size;
+			int j = index / size;
+
+			if (i <= 0 || i >= size - 1 || j <= 0 || j >= size - 1)
+				return;
+
+			// Skip obstacle cells for velocity fields
+			if (obstacles[index] && (b == 1 || b == 2))
+			{
+				d[index] = 0;
+				return;
+			}
+
+			// Skip obstacles for density (leave unchanged)
+			if (obstacles[index])
+				return;
+
+			float x = i - dt0 * velocX[index];
+			float y = j - dt0 * velocY[index];
+
+			// Clamp values to grid boundaries
+			if (x < 0.5f) x = 0.5f;
+			if (x > size - 1.5f) x = size - 1.5f;
+			int i0 = (int)x;
+			int i1 = i0 + 1;
+
+			if (y < 0.5f) y = 0.5f;
+			if (y > size - 1.5f) y = size - 1.5f;
+			int j0 = (int)y;
+			int j1 = j0 + 1;
+
+			// Bilinear interpolation weights
+			float s1 = x - i0;
+			float s0 = 1 - s1;
+			float t1 = y - j0;
+			float t0 = 1 - t1;
+
+
+			int s = size;
+			int getIndex(int x, int y) => x + y * s;
+
+			// Bilinear interpolation
+			d[index] = s0 * (t0 * d0[getIndex(i0, j0)] + t1 * d0[getIndex(i0, j1)]) +
+					   s1 * (t0 * d0[getIndex(i1, j0)] + t1 * d0[getIndex(i1, j1)]);
+		}
+	}
+
+	[BurstCompile]
 	public struct LinearSolveIterationJob : IJobParallelFor
 	{
 		[ReadOnly] public NativeArray<float> x0;
@@ -1176,7 +1298,8 @@ public class FluidSimulation : MonoBehaviour
 			return x + y * size;
 		}
 	}
-	
+
+
 	void DiffuseWithJobs(int b, float[] x, float[] x0, float diff, float dt)
 	{
 		int totalSize = currentSize * currentSize;
@@ -1302,6 +1425,226 @@ public class FluidSimulation : MonoBehaviour
 		}
 	}
 
+	void ProjectWithJobs(float[] velocX, float[] velocY, float[] p, float[] div)
+	{
+		int totalSize = currentSize * currentSize;
+
+		// Ensure job buffers are initialized
+		InitializeJobBuffers();
+
+		// Create native arrays for job data
+		NativeArray<float> nativeVelocX = new NativeArray<float>(velocX, Allocator.TempJob);
+		NativeArray<float> nativeVelocY = new NativeArray<float>(velocY, Allocator.TempJob);
+		NativeArray<float> nativeP = new NativeArray<float>(totalSize, Allocator.TempJob);
+		NativeArray<float> nativeDiv = new NativeArray<float>(totalSize, Allocator.TempJob);
+		NativeArray<bool> nativeObstacles = new NativeArray<bool>(obstacles, Allocator.TempJob);
+
+		try
+		{
+			// Calculate divergence
+			var divergenceJob = new ProjectDivergenceJob
+			{
+				div = nativeDiv,
+				p = nativeP,
+				velocX = nativeVelocX,
+				velocY = nativeVelocY,
+				size = currentSize
+			};
+
+			JobHandle divergenceHandle = divergenceJob.Schedule(totalSize, 64);
+
+			// Apply boundary conditions (dependent on divergence calculation)
+			var boundaryDiv = new BoundaryJob
+			{
+				x = nativeDiv,
+				obstacles = nativeObstacles,
+				size = currentSize,
+				b = 0
+			};
+
+			var boundaryP = new BoundaryJob
+			{
+				x = nativeP,
+				obstacles = nativeObstacles,
+				size = currentSize,
+				b = 0
+			};
+
+			JobHandle boundaryDivHandle = boundaryDiv.Schedule(divergenceHandle);
+			JobHandle boundaryPHandle = boundaryP.Schedule(divergenceHandle);
+
+			// Wait for both boundary operations to complete
+			JobHandle.CombineDependencies(boundaryDivHandle, boundaryPHandle).Complete();
+
+			PressureSolveWithJobs(nativeP, nativeDiv, nativeObstacles);
+
+			// Adjust velocities
+			var velocityJob = new ProjectVelocityAdjustJob
+			{
+				velocX = nativeVelocX,
+				velocY = nativeVelocY,
+				p = nativeP,
+				obstacles = nativeObstacles,
+				size = currentSize
+			};
+
+			JobHandle velocityHandle = velocityJob.Schedule(totalSize, 64);
+
+			//  Apply boundary conditions to velocities
+			var boundaryVelocX = new BoundaryJob
+			{
+				x = nativeVelocX,
+				obstacles = nativeObstacles,
+				size = currentSize,
+				b = 1
+			};
+
+			var boundaryVelocY = new BoundaryJob
+			{
+				x = nativeVelocY,
+				obstacles = nativeObstacles,
+				size = currentSize,
+				b = 2
+			};
+
+			JobHandle boundaryVelocXHandle = boundaryVelocX.Schedule(velocityHandle);
+			JobHandle boundaryVelocYHandle = boundaryVelocY.Schedule(velocityHandle);
+
+			// Wait for both boundary operations to complete
+			JobHandle.CombineDependencies(boundaryVelocXHandle, boundaryVelocYHandle).Complete();
+
+			// Copy results back to managed arrays
+			nativeVelocX.CopyTo(velocX);
+			nativeVelocY.CopyTo(velocY);
+		}
+		finally
+		{
+			// Clean up native arrays
+			nativeVelocX.Dispose();
+			nativeVelocY.Dispose();
+			nativeP.Dispose();
+			nativeDiv.Dispose();
+			nativeObstacles.Dispose();
+		}
+	}
+
+	void AdvectWithJobs(int b, float[] d, float[] d0, float[] velocX, float[] velocY, float dt)
+	{
+		int totalSize = currentSize * currentSize;
+		float dt0 = dt * (currentSize - 2);
+
+		// Create native arrays for job data
+		NativeArray<float> nativeD = new NativeArray<float>(totalSize, Allocator.TempJob);
+		NativeArray<float> nativeD0 = new NativeArray<float>(d0, Allocator.TempJob);
+		NativeArray<float> nativeVelocX = new NativeArray<float>(velocX, Allocator.TempJob);
+		NativeArray<float> nativeVelocY = new NativeArray<float>(velocY, Allocator.TempJob);
+		NativeArray<bool> nativeObstacles = new NativeArray<bool>(obstacles, Allocator.TempJob);
+
+		try
+		{
+			// Create and schedule the advection job
+			var advectJob = new AdvectJob
+			{
+				d = nativeD,
+				d0 = nativeD0,
+				velocX = nativeVelocX,
+				velocY = nativeVelocY,
+				obstacles = nativeObstacles,
+				size = currentSize,
+				b = b,
+				dt0 = dt0
+			};
+
+			JobHandle advectHandle = advectJob.Schedule(totalSize, 64);
+
+			// Apply boundary conditions afterward
+			var boundaryJob = new BoundaryJob
+			{
+				x = nativeD,
+				obstacles = nativeObstacles,
+				size = currentSize,
+				b = b
+			};
+
+			JobHandle boundaryHandle = boundaryJob.Schedule(advectHandle);
+			boundaryHandle.Complete();
+
+			// Copy results back to managed array
+			nativeD.CopyTo(d);
+		}
+		finally
+		{
+			// Clean up native arrays
+			nativeD.Dispose();
+			nativeD0.Dispose();
+			nativeVelocX.Dispose();
+			nativeVelocY.Dispose();
+			nativeObstacles.Dispose();
+		}
+	}
+
+	void PressureSolveWithJobs(NativeArray<float> p, NativeArray<float> div, NativeArray<bool> obstacles)
+	{
+		// Similar to LinearSolveWithJobs but specifically optimized for pressure calculation
+		// This would directly work with the native arrays without copying to/from managed arrays
+		float a = 1.0f;
+		float c = 6.0f;
+		int totalSize = p.Length;
+
+		// Create temporary buffer for double buffering
+		NativeArray<float> tempBuffer = new NativeArray<float>(totalSize, Allocator.TempJob);
+
+		try
+		{
+			NativeArray<float> readBuffer = p;
+			NativeArray<float> writeBuffer = tempBuffer;
+
+			// Run multiple iterations of the solver
+			for (int k = 0; k < 20; k++)
+			{
+				var linearSolveJob = new LinearSolveIterationJob
+				{
+					x0 = div,
+					xRead = readBuffer,
+					xWrite = writeBuffer,
+					obstacles = obstacles,
+					size = currentSize,
+					a = a,
+					c = c
+				};
+
+				JobHandle jobHandle = linearSolveJob.Schedule(totalSize, 64);
+				jobHandle.Complete();
+
+				// Apply boundary conditions
+				var boundaryJob = new BoundaryJob
+				{
+					x = writeBuffer,
+					obstacles = obstacles,
+					size = currentSize,
+					b = 0
+				};
+
+				boundaryJob.Schedule().Complete();
+
+				// Swap buffers for next iteration
+				var temp = readBuffer;
+				readBuffer = writeBuffer;
+				writeBuffer = temp;
+			}
+
+			// If the final result is in tempBuffer, copy it to p
+			if (readBuffer.GetHashCode() != p.GetHashCode())
+			{
+				readBuffer.CopyTo(p);
+			}
+		}
+		finally
+		{
+			tempBuffer.Dispose();
+		}
+	}
+
 	void ApplyBoundaryConditions(int b, NativeArray<float> buffer)
 	{
 		// Create and execute boundary job
@@ -1320,4 +1663,3 @@ public class FluidSimulation : MonoBehaviour
 		boundaryJob.obstacles.Dispose();
 	}
 }
-

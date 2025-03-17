@@ -155,8 +155,8 @@ MonoBehaviour:
   physicalSize: 2
   resolutionMultiplier: 2
   diffusion: 0.0001
-  viscosity: 0.0001
-  timeStep: 0.03
+  viscosity: 0.00001
+  timeStep: 0.003
   autoAdjustParameters: 1
   enableCustomSource: 1
   sourceStrength: 35
@@ -165,7 +165,7 @@ MonoBehaviour:
   sourceVelocity: 39.2
   sourceRadius: 1.5
   sourcePulseRate: 5
-  sourcePulsing: 1
+  sourcePulsing: 0
   sourcePositionX: 0.05
   sourcePositionY: 0.5
   moveSourceWithMouse: 1
@@ -204,10 +204,18 @@ MonoBehaviour:
     m_NumColorKeys: 2
     m_NumAlphaKeys: 2
   showStreamlines: 0
-  streamlineDensity: 4
-  streamlineScale: 1
+  streamlineDensity: 2
+  streamlineScale: 5
   streamlineColor: {r: 1, g: 1, b: 1, a: 1}
-  streamlineThickness: 1
+  streamlineThickness: 0.5
+  enableObstacle: 0
+  obstacleShape: 0
+  obstaclePositionX: 0.5
+  obstaclePositionY: 0.5
+  obstacleRadius: 0.1
+  obstacleWidth: 0.2
+  obstacleHeight: 0.05
+  obstacleColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}
   colorMode: 2
   lowDensityColor: {r: 0, g: 0, b: 1, a: 1}
   mediumDensityColor: {r: 0, g: 1, b: 0, a: 1}
@@ -215,7 +223,7 @@ MonoBehaviour:
   mediumDensityThreshold: 0.5
   highDensityThreshold: 5
   visualizeSourcePosition: 0
-  sourcePositionColor: {r: 1, g: 0.034113742, b: 0.015686274, a: 1}
+  sourcePositionColor: {r: 0.98203886, g: 1, b: 0.015686274, a: 1}
 --- !u!4 &49044249
 Transform:
   m_ObjectHideFlags: 0
