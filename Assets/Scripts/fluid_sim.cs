@@ -1050,7 +1050,6 @@ public class FluidSimulation : MonoBehaviour
 
 		public void Execute()
 		{
-			// IJob allows us to access any element of the arrays
 			// Handle outer grid boundaries
 			for (int i = 1; i < size - 1; i++)
 			{
@@ -1066,7 +1065,7 @@ public class FluidSimulation : MonoBehaviour
 			x[GridUtils.IX(size - 1, 0, size)] = 0.5f * (x[GridUtils.IX(size - 2, 0, size)] + x[GridUtils.IX(size - 1, 1, size)]);
 			x[GridUtils.IX(size - 1, size - 1, size)] = 0.5f * (x[GridUtils.IX(size - 2, size - 1, size)] + x[GridUtils.IX(size - 1, size - 2, size)]);
 
-			// Handle internal obstacle boundaries
+			// Handle internal obstacle boundaries with mirroring
 			for (int i = 1; i < size - 1; i++)
 			{
 				for (int j = 1; j < size - 1; j++)
@@ -1074,28 +1073,29 @@ public class FluidSimulation : MonoBehaviour
 					int idx = GridUtils.IX(i, j, size);
 					if (obstacles[idx])
 					{
-						if (b == 1 || b == 2)
+						// Mirror velocity from the nearest fluid cells
+						if (b == 1) // Horizontal velocity (velocityX)
 						{
-							x[idx] = 0;
-						}
-						else
-						{
-							float sum = 0;
+							float mirroredX = 0;
 							int count = 0;
-
-							if (i > 0 && !obstacles[GridUtils.IX(i - 1, j, size)]) { sum += x[GridUtils.IX(i - 1, j, size)]; count++; }
-							if (i < size - 1 && !obstacles[GridUtils.IX(i + 1, j, size)]) { sum += x[GridUtils.IX(i + 1, j, size)]; count++; }
-							if (j > 0 && !obstacles[GridUtils.IX(i, j - 1, size)]) { sum += x[GridUtils.IX(i, j - 1, size)]; count++; }
-							if (j < size - 1 && !obstacles[GridUtils.IX(i, j + 1, size)]) { sum += x[GridUtils.IX(i, j + 1, size)]; count++; }
-
-							x[idx] = count > 0 ? sum / count : 0;
+							if (!obstacles[GridUtils.IX(i - 1, j, size)]) { mirroredX += -x[GridUtils.IX(i - 1, j, size)]; count++; }
+							if (!obstacles[GridUtils.IX(i + 1, j, size)]) { mirroredX += -x[GridUtils.IX(i + 1, j, size)]; count++; }
+							x[idx] = count > 0 ? mirroredX / count : 0;
+						}
+						else if (b == 2) // Vertical velocity (velocityY)
+						{
+							float mirroredY = 0;
+							int count = 0;
+							if (!obstacles[GridUtils.IX(i, j - 1, size)]) { mirroredY += -x[GridUtils.IX(i, j - 1, size)]; count++; }
+							if (!obstacles[GridUtils.IX(i, j + 1, size)]) { mirroredY += -x[GridUtils.IX(i, j + 1, size)]; count++; }
+							x[idx] = count > 0 ? mirroredY / count : 0;
 						}
 					}
 				}
 			}
 		}
-
 	}
+
 
 	void DiffuseWithJobs(int b, float[] x, float[] x0, float diff, float dt)
 	{
