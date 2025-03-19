@@ -208,11 +208,11 @@ MonoBehaviour:
   streamlineScale: 5
   streamlineColor: {r: 1, g: 1, b: 1, a: 1}
   streamlineThickness: 0.5
-  lowPressureColor: {r: 0, g: 0, b: 1, a: 1}
-  neutralPressureColor: {r: 1, g: 1, b: 1, a: 1}
+  lowPressureColor: {r: 0.13375795, g: 1, b: 0, a: 1}
+  neutralPressureColor: {r: 0.9933106, g: 1, b: 0, a: 1}
   highPressureColor: {r: 1, g: 0, b: 0, a: 1}
-  lowPressureThreshold: -50
-  highPressureThreshold: 50
+  lowPressureThreshold: 0.000000001
+  highPressureThreshold: 0.00001
   enableObstacle: 0
   obstacleShape: 0
   obstaclePositionX: 0.5

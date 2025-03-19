@@ -63,9 +63,9 @@ public class FluidSimulation : MonoBehaviour
 	public Color lowPressureColor = Color.blue;
 	public Color neutralPressureColor = Color.white;
 	public Color highPressureColor = Color.red;
-	[Range(-100f, 100f)]
+	[Range(0f, 1f)]
 	public float lowPressureThreshold = -50f;
-	[Range(-100f, 1000f)]
+	[Range(-0f, 1f)]
 	public float highPressureThreshold = 50f;
 
 	[Header("Obstacle Settings")]
@@ -155,7 +155,6 @@ public class FluidSimulation : MonoBehaviour
 		}
 
 	}
-
 	void Start()
 	{
 		ResetSimulation();
@@ -291,7 +290,7 @@ public class FluidSimulation : MonoBehaviour
 
 						if (distSquared < radiusInCells * radiusInCells)
 						{
-							obstacles[IX(i, j)] = true;
+							obstacles[GridUtils.IX(i, j, currentSize)] = true;
 						}
 					}
 				}
@@ -317,7 +316,7 @@ public class FluidSimulation : MonoBehaviour
 				{
 					for (int j = minY; j <= maxY; j++)
 					{
-						obstacles[IX(i, j)] = true;
+						obstacles[GridUtils.IX(i, j, currentSize)] = true;
 					}
 				}
 				break;
@@ -466,7 +465,7 @@ public class FluidSimulation : MonoBehaviour
 		{
 			for (int j = 1; j < currentSize - 1; j++)
 			{
-				int idx = IX(i, j);
+				int idx = GridUtils.IX(i, j, currentSize);
 				if (obstacles[idx])
 				{
 					velocityX[idx] = 0;
@@ -499,7 +498,7 @@ public class FluidSimulation : MonoBehaviour
 				continue;
 
 			// Skip if this is also an obstacle
-			int nidx = IX(ni, nj);
+			int nidx = GridUtils.IX(ni, nj, currentSize);
 			if (obstacles[nidx])
 				continue;
 
@@ -533,7 +532,7 @@ public class FluidSimulation : MonoBehaviour
 		int i = Mathf.Clamp((int)x, 0, currentSize - 1);
 		int j = Mathf.Clamp((int)y, 0, currentSize - 1);
 
-		density[IX(i, j)] += amount;
+		density[GridUtils.IX(i, j, currentSize)] += amount;
 	}
 
 	void AddVelocity(float x, float y, float amountX, float amountY)
@@ -541,8 +540,8 @@ public class FluidSimulation : MonoBehaviour
 		int i = Mathf.Clamp((int)x, 0, currentSize - 1);
 		int j = Mathf.Clamp((int)y, 0, currentSize - 1);
 
-		velocityX[IX(i, j)] += amountX;
-		velocityY[IX(i, j)] += amountY;
+		velocityX[GridUtils.IX(i, j, currentSize)] += amountX;
+		velocityY[GridUtils.IX(i, j, currentSize)] += amountY;
 	}
 
 	void Diffuse(int b, float[] x, float[] x0, float diff, float dt)
@@ -552,9 +551,12 @@ public class FluidSimulation : MonoBehaviour
 		LinearSolveWithJobs(b, x, x0, a, 1 + 6 * a);
 	}
 
-	int IX(int x, int y)
+	public static class GridUtils
 	{
-		return x + y * currentSize;
+		public static int IX(int x, int y, int size)
+		{
+			return x + y * size;
+		}
 	}
 
 	void UpdateVisualization()
@@ -892,12 +894,9 @@ public class FluidSimulation : MonoBehaviour
 			if (i <= 0 || i >= size - 1 || j <= 0 || j >= size - 1)
 				return;
 
-			int s = size;
-			int IX(int x, int y) => x + y * s;
-
 			div[index] = -0.5f * (
-				velocX[IX(i + 1, j)] - velocX[IX(i - 1, j)] +
-				velocY[IX(i, j + 1)] - velocY[IX(i, j - 1)]
+				velocX[GridUtils.IX(i + 1, j, size)] - velocX[GridUtils.IX(i - 1, j, size)] +
+				velocY[GridUtils.IX(i, j + 1, size)] - velocY[GridUtils.IX(i, j - 1, size)]
 			) / size;
 
 			p[index] = 0;
@@ -926,11 +925,8 @@ public class FluidSimulation : MonoBehaviour
 			if (obstacles[index])
 				return;
 
-			int s = size;
-			int IX(int x, int y) => x + y * s;
-
-			velocX[index] -= 0.5f * (p[IX(i + 1, j)] - p[IX(i - 1, j)]) * size;
-			velocY[index] -= 0.5f * (p[IX(i, j + 1)] - p[IX(i, j - 1)]) * size;
+			velocX[index] -= 0.5f * (p[GridUtils.IX(i + 1, j, size)] - p[GridUtils.IX(i - 1, j, size)]) * size;
+			velocY[index] -= 0.5f * (p[GridUtils.IX(i, j + 1, size)] - p[GridUtils.IX(i, j - 1, size)]) * size;
 		}
 	}
 
@@ -1030,10 +1026,10 @@ public class FluidSimulation : MonoBehaviour
 			}
 
 			// Use proper indexing function to get surrounding values
-			int left = IX(i - 1, j);
-			int right = IX(i + 1, j);
-			int top = IX(i, j + 1);
-			int bottom = IX(i, j - 1);
+			int left = GridUtils.IX(i - 1, j, size);
+			int right = GridUtils.IX(i + 1, j, size);
+			int top = GridUtils.IX(i, j + 1, size);
+			int bottom = GridUtils.IX(i, j - 1, size);
 
 			// LinearSolve computation
 			xWrite[index] = (x0[index] + a * (
@@ -1042,10 +1038,6 @@ public class FluidSimulation : MonoBehaviour
 			)) / c;
 		}
 
-		int IX(int x, int y)
-		{
-			return x + y * size;
-		}
 	}
 
 	[BurstCompile]
@@ -1062,24 +1054,24 @@ public class FluidSimulation : MonoBehaviour
 			// Handle outer grid boundaries
 			for (int i = 1; i < size - 1; i++)
 			{
-				x[IX(0, i)] = b == 1 ? -x[IX(1, i)] : x[IX(1, i)];
-				x[IX(size - 1, i)] = b == 1 ? -x[IX(size - 2, i)] : x[IX(size - 2, i)];
-				x[IX(i, 0)] = b == 2 ? -x[IX(i, 1)] : x[IX(i, 1)];
-				x[IX(i, size - 1)] = b == 2 ? -x[IX(i, size - 2)] : x[IX(i, size - 2)];
+				x[GridUtils.IX(0, i, size)] = b == 1 ? -x[GridUtils.IX(1, i, size)] : x[GridUtils.IX(1, i, size)];
+				x[GridUtils.IX(size - 1, i, size)] = b == 1 ? -x[GridUtils.IX(size - 2, i, size)] : x[GridUtils.IX(size - 2, i, size)];
+				x[GridUtils.IX(i, 0, size)] = b == 2 ? -x[GridUtils.IX(i, 1, size)] : x[GridUtils.IX(i, 1, size)];
+				x[GridUtils.IX(i, size - 1, size)] = b == 2 ? -x[GridUtils.IX(i, size - 2, size)] : x[GridUtils.IX(i, size - 2, size)];
 			}
 
 			// Corner cells
-			x[IX(0, 0)] = 0.5f * (x[IX(1, 0)] + x[IX(0, 1)]);
-			x[IX(0, size - 1)] = 0.5f * (x[IX(1, size - 1)] + x[IX(0, size - 2)]);
-			x[IX(size - 1, 0)] = 0.5f * (x[IX(size - 2, 0)] + x[IX(size - 1, 1)]);
-			x[IX(size - 1, size - 1)] = 0.5f * (x[IX(size - 2, size - 1)] + x[IX(size - 1, size - 2)]);
+			x[GridUtils.IX(0, 0, size)] = 0.5f * (x[GridUtils.IX(1, 0, size)] + x[GridUtils.IX(0, 1, size)]);
+			x[GridUtils.IX(0, size - 1, size)] = 0.5f * (x[GridUtils.IX(1, size - 1, size)] + x[GridUtils.IX(0, size - 2, size)]);
+			x[GridUtils.IX(size - 1, 0, size)] = 0.5f * (x[GridUtils.IX(size - 2, 0, size)] + x[GridUtils.IX(size - 1, 1, size)]);
+			x[GridUtils.IX(size - 1, size - 1, size)] = 0.5f * (x[GridUtils.IX(size - 2, size - 1, size)] + x[GridUtils.IX(size - 1, size - 2, size)]);
 
 			// Handle internal obstacle boundaries
 			for (int i = 1; i < size - 1; i++)
 			{
 				for (int j = 1; j < size - 1; j++)
 				{
-					int idx = IX(i, j);
+					int idx = GridUtils.IX(i, j, size);
 					if (obstacles[idx])
 					{
 						if (b == 1 || b == 2)
@@ -1091,10 +1083,10 @@ public class FluidSimulation : MonoBehaviour
 							float sum = 0;
 							int count = 0;
 
-							if (i > 0 && !obstacles[IX(i - 1, j)]) { sum += x[IX(i - 1, j)]; count++; }
-							if (i < size - 1 && !obstacles[IX(i + 1, j)]) { sum += x[IX(i + 1, j)]; count++; }
-							if (j > 0 && !obstacles[IX(i, j - 1)]) { sum += x[IX(i, j - 1)]; count++; }
-							if (j < size - 1 && !obstacles[IX(i, j + 1)]) { sum += x[IX(i, j + 1)]; count++; }
+							if (i > 0 && !obstacles[GridUtils.IX(i - 1, j, size)]) { sum += x[GridUtils.IX(i - 1, j, size)]; count++; }
+							if (i < size - 1 && !obstacles[GridUtils.IX(i + 1, j, size)]) { sum += x[GridUtils.IX(i + 1, j, size)]; count++; }
+							if (j > 0 && !obstacles[GridUtils.IX(i, j - 1, size)]) { sum += x[GridUtils.IX(i, j - 1, size)]; count++; }
+							if (j < size - 1 && !obstacles[GridUtils.IX(i, j + 1, size)]) { sum += x[GridUtils.IX(i, j + 1, size)]; count++; }
 
 							x[idx] = count > 0 ? sum / count : 0;
 						}
@@ -1103,10 +1095,6 @@ public class FluidSimulation : MonoBehaviour
 			}
 		}
 
-		int IX(int x, int y)
-		{
-			return x + y * size;
-		}
 	}
 
 	void DiffuseWithJobs(int b, float[] x, float[] x0, float diff, float dt)
@@ -1515,7 +1503,7 @@ public class FluidSimulation : MonoBehaviour
 				return;
 			}
 
-			int idx = IX(i, j);
+			int idx = GridUtils.IX(i, j, size);
 
 			// Skip obstacles
 			if (obstacles[idx])
@@ -1545,11 +1533,6 @@ public class FluidSimulation : MonoBehaviour
 
 			// Store the streamline information
 			streamlines[index] = new float4(i, j, angle, lineLength);
-		}
-
-		int IX(int x, int y)
-		{
-			return x + y * size;
 		}
 	}
 
