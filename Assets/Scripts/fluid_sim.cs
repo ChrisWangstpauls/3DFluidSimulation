@@ -451,6 +451,8 @@ public class FluidSimulation : MonoBehaviour
 		VelocityStep(effectiveTimeStep, effectiveViscosity);
 		DensityStep(effectiveTimeStep, effectiveDiffusion);
 
+		ApplyTurbulentNoise();
+
 		// Apply obstacle interactions
 		if (enableObstacle)
 		{
@@ -481,8 +483,8 @@ public class FluidSimulation : MonoBehaviour
 
 	void ApplyDragNearObstacle(int obstacleI, int obstacleJ)
 	{
-		// Apply drag effect to cells adjacent to obstacles
-		float dragFactor = 0.95f; // Adjust as needed
+		// Characteristic length (grid cell size)
+		float L = cellSize;
 
 		// Check and apply to all adjacent cells
 		int[] di = { -1, 1, 0, 0 };
@@ -497,16 +499,56 @@ public class FluidSimulation : MonoBehaviour
 			if (ni < 1 || ni >= currentSize - 1 || nj < 1 || nj >= currentSize - 1)
 				continue;
 
-			// Skip if this is also an obstacle
 			int nidx = GridUtils.IX(ni, nj, currentSize);
+
+			// Skip if this is also an obstacle
 			if (obstacles[nidx])
 				continue;
 
-			// Apply drag to fluid velocity
+			// Compute velocity magnitude
+			float U = Mathf.Sqrt(velocityX[nidx] * velocityX[nidx] + velocityY[nidx] * velocityY[nidx]);
+
+			// Compute Reynolds number (avoid division by zero)
+			float Re = (U * L) / Mathf.Max(viscosity, 1e-5f);
+
+			// Adapt drag factor based on Reynolds number (sigmoid-like response)
+			float dragFactor = Mathf.Lerp(0.8f, 0.98f, 1.0f - Mathf.Exp(-Re * 0.01f));
+
+			// Apply adaptive drag
 			velocityX[nidx] *= dragFactor;
 			velocityY[nidx] *= dragFactor;
 		}
 	}
+
+	void ApplyTurbulentNoise()
+	{
+		float noiseScale = 0.1f;  // Adjusts turbulence intensity
+		float frequency = 0.05f;  // Controls size of turbulent structures
+
+		for (int i = 1; i < currentSize - 1; i++)
+		{
+			for (int j = 1; j < currentSize - 1; j++)
+			{
+				int idx = GridUtils.IX(i, j, currentSize);
+
+				// Compute velocity magnitude
+				float U = Mathf.Sqrt(velocityX[idx] * velocityX[idx] + velocityY[idx] * velocityY[idx]);
+
+				// Generate Perlin noise (scaled by frequency)
+				float noiseX = Mathf.PerlinNoise(i * frequency, j * frequency) - 0.5f;
+				float noiseY = Mathf.PerlinNoise(j * frequency, i * frequency) - 0.5f;
+
+				// Scale perturbation by velocity magnitude
+				float perturbationStrength = noiseScale * U;
+
+				// Apply turbulence to velocity
+				velocityX[idx] += noiseX * perturbationStrength;
+				velocityY[idx] += noiseY * perturbationStrength;
+			}
+		}
+	}
+
+
 
 	void VelocityStep(float dt, float visc)
 	{

@@ -135,7 +135,7 @@ GameObject:
   m_Layer: 0
   m_Name: Fluid Simulation
   m_TagString: Untagged
-  m_Icon: {fileID: 0}
+  m_Icon: {fileID: 5721338939258241955, guid: 0000000000000000d000000000000000, type: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
@@ -159,7 +159,7 @@ MonoBehaviour:
   timeStep: 0.003
   autoAdjustParameters: 1
   enableCustomSource: 1
-  sourceStrength: 5
+  sourceStrength: 20
   sourceEmitsVelocity: 1
   sourceDirection: 0
   sourceVelocity: 10
@@ -238,7 +238,7 @@ Transform:
   m_GameObject: {fileID: 49044247}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 0.008, y: -0.016, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -606,7 +606,7 @@ Transform:
   m_GameObject: {fileID: 963194225}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.19, y: 0.11, z: -2.69}
+  m_LocalPosition: {x: 0.005, y: -0.002, z: -2.69}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
