@@ -330,8 +330,8 @@ public class FluidSimulation : MonoBehaviour
 
 			case ObstacleShape.Airfoil:
 				// Define parameters for airfoil
-				float chord = obstacleWidth * currentSize; // Use width param for chord length
-				float thickness = 0.12f; // 12% thickness (typical for NACA 0012)
+				float chord = 2 * obstacleWidth * currentSize; // Use width param for chord length
+				float thickness = 0.15f; // 15% thickness (NACA 0015)
 
 				// Mark cells inside  airfoil as obstacles
 				for (int i = 0; i < currentSize; i++)
@@ -347,8 +347,8 @@ public class FluidSimulation : MonoBehaviour
 						// Only process points that might be in airfoil bounds
 						if (x >= 0 && x <= 1 && Math.Abs(y) < thickness)
 						{
-							// NACA 0012 airfoil equation
-							double halfThickness = 10 * thickness * (0.2969 * Math.Sqrt(x) - 0.1260 * x - 0.3516 * x * x + 0.2843 * x * x * x - 0.1015 * x * x * x * x);
+							// NACA 0015 airfoil equation
+							double halfThickness = 5 * thickness * (0.2969 * Math.Sqrt(x) - 0.1260 * x - 0.3516 * x * x + 0.2843 * x * x * x - 0.1015 * x * x * x * x);
 
 							// Check if point is inside airfoil
 							if (Math.Abs(y) <= halfThickness)
