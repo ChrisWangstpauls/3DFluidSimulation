@@ -50,7 +50,9 @@ public class FluidSimulation : MonoBehaviour
 	public Color fluidcolour = Color.white;
 	[Range(0f, 1f)]
 	public float colourIntensity = 1f;
-	public bool useGradient = false;
+	public bool useLerp = false;
+	public Color startColor = Color.white;
+	public Color endColor = Color.white;
 	public Gradient colourGradient;
 
 	[Header("Streamline Visualization")]
@@ -708,11 +710,12 @@ public class FluidSimulation : MonoBehaviour
 			}
 		}
 
-		// colour change over time?
-		/*
-		float cycle = Mathf.PingPong(elapsedTime * 0.1f, 1f);
-		fluidcolour = Color.Lerp(Color.magenta, Color.cyan, cycle);
-		*/
+		// colour change over time
+		if (useLerp != false)
+		{
+			float cycle = Mathf.PingPong(elapsedTime * 0.1f, 1f);
+			fluidcolour = Color.Lerp(startColor, endColor, cycle);
+		}
 
 		try
 		{
