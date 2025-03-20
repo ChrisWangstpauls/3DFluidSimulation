@@ -10,7 +10,6 @@ public class FluidSimulation : MonoBehaviour
 	[Header("Simulation Parameters")]
 	[Range(32, 512)]
 	public int size = 128;
-
 	[Tooltip("Physical size of the simulation area")]
 	public float physicalSize = 1.0f;
 	[Range(0.1f, 10f)]
@@ -19,6 +18,7 @@ public class FluidSimulation : MonoBehaviour
 	public float viscosity = 0.0001f;
 	public float timeStep = 0.1f;
 	public bool autoAdjustParameters = true;
+	public bool applyTurbulentNoise = false;
 
 	[Header("Customizable Source")]
 	public bool enableCustomSource = false;
@@ -451,7 +451,10 @@ public class FluidSimulation : MonoBehaviour
 		VelocityStep(effectiveTimeStep, effectiveViscosity);
 		DensityStep(effectiveTimeStep, effectiveDiffusion);
 
-		ApplyTurbulentNoise();
+		if (applyTurbulentNoise)
+		{
+			ApplyTurbulentNoise();
+		}
 
 		// Apply obstacle interactions
 		if (enableObstacle)
@@ -473,7 +476,6 @@ public class FluidSimulation : MonoBehaviour
 					velocityX[idx] = 0;
 					velocityY[idx] = 0;
 
-					// Optional: Create slight drag effect near obstacles
 					// This makes the simulation more realistic
 					ApplyDragNearObstacle(i, j);
 				}
