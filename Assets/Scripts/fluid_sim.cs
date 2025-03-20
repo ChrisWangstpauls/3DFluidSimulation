@@ -4,6 +4,10 @@ using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Burst;
+using System.Collections;
+using System.Data;
+using Mono.Data.Sqlite;
+using System;
 
 public class FluidSimulation : MonoBehaviour
 {
@@ -70,7 +74,7 @@ public class FluidSimulation : MonoBehaviour
 
 	[Header("Obstacle Settings")]
 	public bool enableObstacle = true;
-	public enum ObstacleShape { Circle, Rectangle, Custom }
+	public enum ObstacleShape { Circle, Rectangle, Airfoil }
 	public ObstacleShape obstacleShape = ObstacleShape.Circle;
 	[Range(0f, 1f)]
 	public float obstaclePositionX = 0.5f;
@@ -126,6 +130,9 @@ public class FluidSimulation : MonoBehaviour
 	private NativeArray<float> jobBuffer2;
 	private NativeArray<bool> jobObstacles;
 	private bool jobBuffersInitialized = false;
+
+	private int currentStep;
+	private int currentRunID;
 
 	void OnValidate()
 	{
@@ -321,9 +328,36 @@ public class FluidSimulation : MonoBehaviour
 				}
 				break;
 
-			case ObstacleShape.Custom:
-				// You can implement custom shapes here if needed
-				Debug.Log("Custom obstacle shape is selected but not implemented");
+			case ObstacleShape.Airfoil:
+				// Define parameters for airfoil
+				float chord = obstacleWidth * currentSize; // Use width param for chord length
+				float thickness = 0.12f; // 12% thickness (typical for NACA 0012)
+
+				// Mark cells inside  airfoil as obstacles
+				for (int i = 0; i < currentSize; i++)
+				{
+					for (int j = 0; j < currentSize; j++)
+					{
+						// Convert grid coordinates to airfoil coordinates
+						// x goes from 0 to chord length, centered at obstacleX
+						float x = (i - obstacleX + chord / 2) / chord;
+						// y is centered at obstacleY
+						float y = (j - obstacleY) / chord;
+
+						// Only process points that might be in airfoil bounds
+						if (x >= 0 && x <= 1 && Math.Abs(y) < thickness)
+						{
+							// NACA 0012 airfoil equation
+							double halfThickness = 10 * thickness * (0.2969 * Math.Sqrt(x) - 0.1260 * x - 0.3516 * x * x + 0.2843 * x * x * x - 0.1015 * x * x * x * x);
+
+							// Check if point is inside airfoil
+							if (Math.Abs(y) <= halfThickness)
+							{
+								obstacles[GridUtils.IX(i, j, currentSize)] = true;
+							}
+						}
+					}
+				}
 				break;
 		}
 	}
@@ -461,6 +495,9 @@ public class FluidSimulation : MonoBehaviour
 		{
 			EnforceObstacleBoundaries();
 		}
+
+		/*SaveSimulationData(currentRunID, currentStep);
+		currentStep++;*/
 	}
 
 	void EnforceObstacleBoundaries()
@@ -602,6 +639,39 @@ public class FluidSimulation : MonoBehaviour
 			return x + y * size;
 		}
 	}
+
+	/*void SaveSimulationData(int runID, int timeStep)
+	{ 
+		using (var connection = new SqliteConnection("URI=file:fluid_simulation.db"))
+		{
+			connection.Open();
+			using (var command = connection.CreateCommand())
+			{
+				for (int i = 0; i < currentSize; i++)
+				{
+					for (int j = 0; j < currentSize; j++)
+					{
+						int cellIndex = GridUtils.IX(i, j, currentSize);
+
+						command.CommandText = "INSERT INTO SimulationData (RunID, TimeStep, CellX, CellY, Density, VelocityX, VelocityY, Pressure) " +
+											  "VALUES (@runID, @timeStep, @x, @y, @density, @velocityX, @velocityY, @pressure)";
+
+						command.Parameters.Clear();
+						command.Parameters.AddWithValue("@runID", runID);
+						command.Parameters.AddWithValue("@timeStep", timeStep);
+						command.Parameters.AddWithValue("@x", i);
+						command.Parameters.AddWithValue("@y", j);
+						command.Parameters.AddWithValue("@density", density[cellIndex]);
+						command.Parameters.AddWithValue("@velocityX", velocityX[cellIndex]);
+						command.Parameters.AddWithValue("@velocityY", velocityY[cellIndex]);
+						command.Parameters.AddWithValue("@pressure", pressure[cellIndex]);
+
+						command.ExecuteNonQuery();
+					}
+				}
+			}
+		}
+	}*/
 
 	void UpdateVisualization()
 	{
