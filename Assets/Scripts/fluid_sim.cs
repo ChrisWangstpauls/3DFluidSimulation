@@ -107,14 +107,14 @@ public class FluidSimulation : MonoBehaviour
 	public bool visualizeSourcePosition = true;
 	public Color sourcePositionColor = Color.yellow;
 
-	private float[] density;
-	private float[] velocityX;
-	private float[] velocityY;
-	private float[] velocityX0;
-	private float[] velocityY0;
-	private float[] pressure; 
+	public float[] density;
+	public float[] velocityX;
+	public float[] velocityY;
+	public float[] velocityX0;
+	public float[] velocityY0;
+	public float[] pressure; 
 
-	private int currentSize;
+	public int currentSize;
 	private float cellSize;
 	private float dtScale;
 	private float elapsedTime = 0f;
@@ -126,6 +126,8 @@ public class FluidSimulation : MonoBehaviour
 
 	private int previousSize;
 	private float previousResolutionMultiplier;
+
+	private int count = 0;
 
 	private bool[] obstacles;
 
@@ -166,6 +168,18 @@ public class FluidSimulation : MonoBehaviour
 	{
 		ResetSimulation();
 		SetupObstacles();
+
+		//StartCoroutine(SaveSimulationPeriodically(0.5f));
+
+	/*IEnumerator SaveSimulationPeriodically(float interval)
+	{
+		while (true)
+		{
+			yield return new WaitForSeconds(interval);
+				sql_test.SaveSimulationData(Convert.ToInt32(timeStep), this);
+			count++;
+		}
+	}*/
 
 		// Initialize default gradient if none is set
 		if (colourGradient.Equals(new Gradient()))
@@ -401,6 +415,7 @@ public class FluidSimulation : MonoBehaviour
 		Simulate();
 		UpdateVisualization();
 
+
 		// Added DrawStreamlines call if needed separately
 		if (showStreamlines && colorMode != ColorMode.Streamlines)
 		{
@@ -487,6 +502,12 @@ public class FluidSimulation : MonoBehaviour
 		VelocityStep(effectiveTimeStep, effectiveViscosity);
 		DensityStep(effectiveTimeStep, effectiveDiffusion);
 
+		//loses precision fix later
+		/*if (count % 1000 == 0)
+		{
+			sql_test.SaveSimulationData(Convert.ToInt32(timeStep), this);
+		}*/
+
 		if (applyTurbulentNoise)
 		{
 			ApplyTurbulentNoise();
@@ -497,6 +518,8 @@ public class FluidSimulation : MonoBehaviour
 		{
 			EnforceObstacleBoundaries();
 		}
+
+		count++;
 	}
 
 	void EnforceObstacleBoundaries()
