@@ -7,9 +7,9 @@ using Mono.Data.Sqlite;
 using static FluidSimulation;
 using System.Data.Common;
 
-public class sql_test : MonoBehaviour
+public class sql_test : FluidSimulation
 {
-	/*public static void SaveSimulationData(int timeStep, FluidSimulation fluidSimulation)
+	public static void SaveSimulationData(int timeStep, FluidSimulation fluidSimulation)
 	{
 		using var connection = new SqliteConnection("URI=file:C:\\Users\\Chris\\my project (2)\\test.db");
 		connection.Open();
@@ -36,5 +36,5 @@ public class sql_test : MonoBehaviour
 			}
 		}
 		connection.Close();
-	}*/
+	}
 }

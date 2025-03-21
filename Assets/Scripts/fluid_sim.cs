@@ -112,7 +112,7 @@ public class FluidSimulation : MonoBehaviour
 	public float[] velocityY;
 	public float[] velocityX0;
 	public float[] velocityY0;
-	public float[] pressure; 
+	public float[] pressure;
 
 	public int currentSize;
 	private float cellSize;
@@ -169,17 +169,17 @@ public class FluidSimulation : MonoBehaviour
 		ResetSimulation();
 		SetupObstacles();
 
-		//StartCoroutine(SaveSimulationPeriodically(0.5f));
+		StartCoroutine(SaveSimulationPeriodically(5f));
 
-	/*IEnumerator SaveSimulationPeriodically(float interval)
-	{
-		while (true)
+		IEnumerator SaveSimulationPeriodically(float interval)
 		{
-			yield return new WaitForSeconds(interval);
-				sql_test.SaveSimulationData(Convert.ToInt32(timeStep), this);
-			count++;
+			while (true)
+			{
+				yield return new WaitForSeconds(interval);
+					sql_test.SaveSimulationData(Convert.ToInt32(timeStep), this);
+				count++;
+			}
 		}
-	}*/
 
 		// Initialize default gradient if none is set
 		if (colourGradient.Equals(new Gradient()))
@@ -708,7 +708,7 @@ public class FluidSimulation : MonoBehaviour
 			var visualizationJob = new UpdateVisualizationJob
 			{
 				colors = nativeColors,
-				density = nativeDensity,
+				density1 = nativeDensity,
 				obstacles = nativeObstacles,
 				size = currentSize,
 				sourceX = sourcePositionX * currentSize,
@@ -729,7 +729,7 @@ public class FluidSimulation : MonoBehaviour
 				gradientColors = gradientColors,
 				gradientTimes = gradientTimes,
 				gradientKeyCount = gradientKeyCount,
-				pressure = nativePressure,
+				pressure1 = nativePressure,
 				lowPressureColor = lowPressureColor,
 				neutralPressureColor = neutralPressureColor,
 				highPressureColor = highPressureColor,
@@ -1418,7 +1418,7 @@ public class FluidSimulation : MonoBehaviour
 			nativeVelocX.CopyTo(velocX);
 			nativeVelocY.CopyTo(velocY);
 			nativeP.CopyTo(p);
-			nativeP.CopyTo(pressure); 
+			nativeP.CopyTo(pressure);
 
 		}
 		finally
@@ -1766,9 +1766,9 @@ public class FluidSimulation : MonoBehaviour
 	public struct UpdateVisualizationJob : IJobParallelFor
 	{
 		[WriteOnly] public NativeArray<Color> colors;
-		[ReadOnly] public NativeArray<float> density;
+		[ReadOnly] public NativeArray<float> density1;
 		[ReadOnly] public NativeArray<bool> obstacles;
-		[ReadOnly] public NativeArray<float> pressure;
+		[ReadOnly] public NativeArray<float> pressure1;
 
 		// Visualization parameters
 		public int size;
@@ -1812,7 +1812,7 @@ public class FluidSimulation : MonoBehaviour
 				return; // Skip regular fluid coloring for obstacle cells
 			}
 
-			float d = density[idx];
+			float d = density1[idx];
 			float normalizedD = d * colourIntensity;
 			Color pixelColor;
 
@@ -1859,7 +1859,7 @@ public class FluidSimulation : MonoBehaviour
 					break;
 
 				case ColorMode.PressureBased:
-					float p = pressure[idx];
+					float p = pressure1[idx];
 					if (p < lowPressureThreshold)
 					{
 						float t = p / lowPressureThreshold; // Normalize to [0,1]
