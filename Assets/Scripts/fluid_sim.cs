@@ -134,9 +134,6 @@ public class FluidSimulation : MonoBehaviour
 	private NativeArray<bool> jobObstacles;
 	private bool jobBuffersInitialized = false;
 
-	private int currentStep;
-	private int currentRunID;
-
 	void OnValidate()
 	{
 		// Update resolution when parameters change in editor
@@ -256,6 +253,7 @@ public class FluidSimulation : MonoBehaviour
 		}
 
 		Debug.Log($"Fluid simulation reset with resolution: {currentSize}x{currentSize}, cell size: {cellSize}");
+		//squeezing in regex whoo
 		string logMessage = "Fluid simulation reset with resolution: 128x128, cell size: 0.0078125";
 		Match match = Regex.Match(logMessage, @"resolution:\s*(\d+)x(\d+),\s*cell size:\s*([\d.]+)");
 		if (match.Success)
@@ -499,9 +497,6 @@ public class FluidSimulation : MonoBehaviour
 		{
 			EnforceObstacleBoundaries();
 		}
-
-		/*SaveSimulationData(currentRunID, currentStep);
-		currentStep++;*/
 	}
 
 	void EnforceObstacleBoundaries()
@@ -643,39 +638,6 @@ public class FluidSimulation : MonoBehaviour
 			return x + y * size;
 		}
 	}
-
-	/*void SaveSimulationData(int runID, int timeStep)
-	{ 
-		using (var connection = new SqliteConnection("URI=file:fluid_simulation.db"))
-		{
-			connection.Open();
-			using (var command = connection.CreateCommand())
-			{
-				for (int i = 0; i < currentSize; i++)
-				{
-					for (int j = 0; j < currentSize; j++)
-					{
-						int cellIndex = GridUtils.IX(i, j, currentSize);
-
-						command.CommandText = "INSERT INTO SimulationData (RunID, TimeStep, CellX, CellY, Density, VelocityX, VelocityY, Pressure) " +
-											  "VALUES (@runID, @timeStep, @x, @y, @density, @velocityX, @velocityY, @pressure)";
-
-						command.Parameters.Clear();
-						command.Parameters.AddWithValue("@runID", runID);
-						command.Parameters.AddWithValue("@timeStep", timeStep);
-						command.Parameters.AddWithValue("@x", i);
-						command.Parameters.AddWithValue("@y", j);
-						command.Parameters.AddWithValue("@density", density[cellIndex]);
-						command.Parameters.AddWithValue("@velocityX", velocityX[cellIndex]);
-						command.Parameters.AddWithValue("@velocityY", velocityY[cellIndex]);
-						command.Parameters.AddWithValue("@pressure", pressure[cellIndex]);
-
-						command.ExecuteNonQuery();
-					}
-				}
-			}
-		}
-	}*/
 
 	void UpdateVisualization()
 	{
