@@ -187,12 +187,12 @@ public class FluidSimulation : MonoBehaviour
 			colourGradient.SetKeys(colourKeys, alphaKeys);
 		}
 
-		//sql_test.SaveSimRunParams(
-		//size, diffusion, viscosity, timeStep,
-		//enableCustomSource, sourceStrength, sourcePositionX, sourcePositionY,
-		//enableObstacle, obstacleShape.ToString(), obstaclePositionX, obstaclePositionY,
-		//obstacleRadius, obstacleWidth, obstacleHeight
-		//);
+		sql_test.SaveSimRunParams(
+		size, diffusion, viscosity, timeStep,
+		enableCustomSource, sourceStrength, sourcePositionX, sourcePositionY,
+		enableObstacle, obstacleShape.ToString(), obstaclePositionX, obstaclePositionY,
+		obstacleRadius, obstacleWidth, obstacleHeight
+		);
 	}
 
 	void ResetSimulation()
