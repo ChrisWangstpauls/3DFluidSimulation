@@ -169,17 +169,17 @@ public class FluidSimulation : MonoBehaviour
 		ResetSimulation();
 		SetupObstacles();
 
-		StartCoroutine(SaveSimulationPeriodically(5f));
+		//StartCoroutine(SaveSimulationPeriodically(5f));
 
-		IEnumerator SaveSimulationPeriodically(float interval)
-		{
-			while (true)
-			{
-				yield return new WaitForSeconds(interval);
-					sql_test.SaveSimulationData(Convert.ToInt32(timeStep), this);
-				count++;
-			}
-		}
+		//IEnumerator SaveSimulationPeriodically(float interval)
+		//{
+		//	while (true)
+		//	{
+		//		yield return new WaitForSeconds(interval);
+		//			sql_test.SaveSimulationData(Convert.ToInt32(timeStep), this);
+		//		count++;
+		//	}
+		//}
 
 		// Initialize default gradient if none is set
 		if (colourGradient.Equals(new Gradient()))
