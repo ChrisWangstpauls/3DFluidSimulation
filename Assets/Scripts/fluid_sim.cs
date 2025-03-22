@@ -128,8 +128,6 @@ public class FluidSimulation : MonoBehaviour
 	private int previousSize;
 	private float previousResolutionMultiplier;
 
-	private int count = 0;
-
 	private bool[] obstacles;
 
 	private NativeArray<float> jobBuffer1;
@@ -170,16 +168,6 @@ public class FluidSimulation : MonoBehaviour
 		ResetSimulation();
 		SetupObstacles();
 
-		// StartCoroutine(SaveSimulationPeriodically(10f));
-
-		//IEnumerator SaveSimulationPeriodically(float interval)
-		//{
-		//	while (true)
-		//	{
-		//		yield return new WaitForSeconds(interval);
-		//		sql_test.SaveSimulationData(Convert.ToInt32(timeStep), this);
-		//	}
-		//}
 
 		// Initialize default gradient if none is set
 		if (colourGradient.Equals(new Gradient()))
@@ -198,6 +186,13 @@ public class FluidSimulation : MonoBehaviour
 
 			colourGradient.SetKeys(colourKeys, alphaKeys);
 		}
+
+		//sql_test.SaveSimRunParams(
+		//size, diffusion, viscosity, timeStep,
+		//enableCustomSource, sourceStrength, sourcePositionX, sourcePositionY,
+		//enableObstacle, obstacleShape.ToString(), obstaclePositionX, obstaclePositionY,
+		//obstacleRadius, obstacleWidth, obstacleHeight
+		//);
 	}
 
 	void ResetSimulation()
@@ -502,12 +497,6 @@ public class FluidSimulation : MonoBehaviour
 		VelocityStep(effectiveTimeStep, effectiveViscosity);
 		DensityStep(effectiveTimeStep, effectiveDiffusion);
 
-		//loses precision fix later
-		if (count % 100 == 0)
-		{
-			sql_test.SaveSimulationData(Convert.ToInt32(timeStep), this);
-		}
-
 		if (applyTurbulentNoise)
 		{
 			ApplyTurbulentNoise();
@@ -518,8 +507,6 @@ public class FluidSimulation : MonoBehaviour
 		{
 			EnforceObstacleBoundaries();
 		}
-
-		count++;
 	}
 
 	void EnforceObstacleBoundaries()
@@ -608,8 +595,6 @@ public class FluidSimulation : MonoBehaviour
 			}
 		}
 	}
-
-
 
 	void VelocityStep(float dt, float visc)
 	{
@@ -1807,7 +1792,7 @@ public class FluidSimulation : MonoBehaviour
 
 			if (obstacles[idx])
 			{
-				// Draw obstacles with specified color
+				// Draw obstacles with specified colour
 				colors[idx] = obstacleColor;
 				return; // Skip regular fluid coloring for obstacle cells
 			}

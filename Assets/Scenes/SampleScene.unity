@@ -156,7 +156,7 @@ MonoBehaviour:
   resolutionMultiplier: 3
   diffusion: 0.0001
   viscosity: 0.00001
-  timeStep: 0.003
+  timeStep: 0.0025
   autoAdjustParameters: 1
   applyTurbulentNoise: 0
   enableCustomSource: 1
