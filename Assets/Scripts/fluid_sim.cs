@@ -9,6 +9,7 @@ using System.Data;
 using Mono.Data.Sqlite;
 using System;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 
 public class FluidSimulation : MonoBehaviour
 {
@@ -169,15 +170,14 @@ public class FluidSimulation : MonoBehaviour
 		ResetSimulation();
 		SetupObstacles();
 
-		//StartCoroutine(SaveSimulationPeriodically(5f));
+		// StartCoroutine(SaveSimulationPeriodically(10f));
 
 		//IEnumerator SaveSimulationPeriodically(float interval)
 		//{
 		//	while (true)
 		//	{
 		//		yield return new WaitForSeconds(interval);
-		//			sql_test.SaveSimulationData(Convert.ToInt32(timeStep), this);
-		//		count++;
+		//		sql_test.SaveSimulationData(Convert.ToInt32(timeStep), this);
 		//	}
 		//}
 
@@ -503,10 +503,10 @@ public class FluidSimulation : MonoBehaviour
 		DensityStep(effectiveTimeStep, effectiveDiffusion);
 
 		//loses precision fix later
-		/*if (count % 1000 == 0)
+		if (count % 100 == 0)
 		{
 			sql_test.SaveSimulationData(Convert.ToInt32(timeStep), this);
-		}*/
+		}
 
 		if (applyTurbulentNoise)
 		{

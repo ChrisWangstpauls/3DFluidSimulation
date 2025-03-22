@@ -7,10 +7,11 @@ using Mono.Data.Sqlite;
 using static FluidSimulation;
 using System.Data.Common;
 using System.Threading.Tasks;
+using System;
 
 public class sql_test : MonoBehaviour
 {
-	public static async Task SaveSimulationData(int timeStep, FluidSimulation fluidSimulation)
+	public static void SaveSimulationData(int timeStep, FluidSimulation fluidSimulation)
 	{
 		using var connection = new SqliteConnection("URI=file:C:\\Users\\Chris\\my project (2)\\test.db");
 		connection.Open();
@@ -27,7 +28,6 @@ public class sql_test : MonoBehaviour
 
 				command.Parameters.Clear();
 				command.Parameters.AddWithValue("@timeStep", timeStep);
-				await Task.Delay(50);
 				command.Parameters.AddWithValue("@x", i);
 				command.Parameters.AddWithValue("@y", j);
 				command.Parameters.AddWithValue("@density", fluidSimulation.density[cellIndex]);
