@@ -8,6 +8,7 @@ using System.Collections;
 using System.Data;
 using Mono.Data.Sqlite;
 using System;
+using System.Text.RegularExpressions;
 
 public class FluidSimulation : MonoBehaviour
 {
@@ -49,8 +50,10 @@ public class FluidSimulation : MonoBehaviour
 	public Color fluidcolour = Color.white;
 	[Range(0f, 1f)]
 	public float colourIntensity = 1f;
-	public bool useGradient = false;
 	public Gradient colourGradient;
+	public bool useLerp = false;
+	public Color startColor = Color.white;
+	public Color endColor = Color.white;
 
 	[Header("Streamline Visualization")]
 	public bool showStreamlines = false;
@@ -260,6 +263,14 @@ public class FluidSimulation : MonoBehaviour
 		}
 
 		Debug.Log($"Fluid simulation reset with resolution: {currentSize}x{currentSize}, cell size: {cellSize}");
+		string logMessage = "Fluid simulation reset with resolution: 128x128, cell size: 0.0078125";
+		Match match = Regex.Match(logMessage, @"resolution:\s*(\d+)x(\d+),\s*cell size:\s*([\d.]+)");
+		if (match.Success)
+		{
+			int resolutionX = int.Parse(match.Groups[1].Value);
+			int resolutionY = int.Parse(match.Groups[2].Value);
+			float cellSize = float.Parse(match.Groups[3].Value);
+		}
 
 		// Initialize streamline texture if needed
 		if (streamlineTexture != null)
@@ -274,100 +285,92 @@ public class FluidSimulation : MonoBehaviour
 
 	void SetupObstacles()
 	{
-		// First, clear all obstacles
-		for (int i = 0; i < obstacles.Length; i++)
-		{
-			obstacles[i] = false;
-		}
+		// Clear all obstacles
+		Array.Clear(obstacles, 0, obstacles.Length);
 
-		// If obstacles are disabled, return early
-		if (!enableObstacle)
-			return;
+		if (!enableObstacle) return;
 
-		// Convert normalized position (0-1) to grid coordinates
-		float obstacleX = obstaclePositionX * currentSize;
-		float obstacleY = obstaclePositionY * currentSize;
+		int startX = Mathf.RoundToInt(obstaclePositionX * currentSize);
+		int startY = Mathf.RoundToInt(obstaclePositionY * currentSize);
 
-		// Set obstacle cells based on selected shape
+		// Recursive flood fill for different obstacle shapes
 		switch (obstacleShape)
 		{
 			case ObstacleShape.Circle:
-				float radiusInCells = obstacleRadius * currentSize;
-
-				// Process each cell to determine if it's inside the circle
-				for (int i = 0; i < currentSize; i++)
-				{
-					for (int j = 0; j < currentSize; j++)
-					{
-						float distSquared = (i - obstacleX) * (i - obstacleX) +
-											(j - obstacleY) * (j - obstacleY);
-
-						if (distSquared < radiusInCells * radiusInCells)
-						{
-							obstacles[GridUtils.IX(i, j, currentSize)] = true;
-						}
-					}
-				}
+				RecursiveFloodFill(startX, startY, obstacleRadius * currentSize, ObstacleShape.Circle);
 				break;
+
+			case ObstacleShape.Rectangle:
+				RecursiveFloodFill(startX, startY, obstacleWidth * currentSize, ObstacleShape.Rectangle);
+				break;
+
+			case ObstacleShape.Airfoil:
+				RecursiveFloodFill(startX, startY, obstacleWidth * currentSize, ObstacleShape.Airfoil);
+				break;
+		}
+	}
+
+	void RecursiveFloodFill(int x, int y, float size, ObstacleShape shape)
+	{
+		// Boundary checks
+		if (x < 0 || x >= currentSize || y < 0 || y >= currentSize)
+			return;
+
+		int index = GridUtils.IX(x, y, currentSize);
+
+		// Stop if already marked or out of bounds
+		if (obstacles[index]) return;
+
+		// Determine if the cell should be part of the obstacle
+		if (!IsInsideShape(x, y, size, shape)) return;
+
+		// Mark the current cell as an obstacle
+		obstacles[index] = true;
+
+		// Recursively call flood fill in four directions
+		RecursiveFloodFill(x + 1, y, size, shape);
+		RecursiveFloodFill(x - 1, y, size, shape);
+		RecursiveFloodFill(x, y + 1, size, shape);
+		RecursiveFloodFill(x, y - 1, size, shape);
+	}
+
+	bool IsInsideShape(int x, int y, float size, ObstacleShape shape)
+	{
+		float centerX = obstaclePositionX * currentSize;
+		float centerY = obstaclePositionY * currentSize;
+
+		switch (shape)
+		{
+			case ObstacleShape.Circle:
+				return (x - centerX) * (x - centerX) + (y - centerY) * (y - centerY) < size * size;
 
 			case ObstacleShape.Rectangle:
 				float halfWidth = obstacleWidth * currentSize * 0.5f;
 				float halfHeight = obstacleHeight * currentSize * 0.5f;
-
-				int minX = Mathf.FloorToInt(obstacleX - halfWidth);
-				int maxX = Mathf.CeilToInt(obstacleX + halfWidth);
-				int minY = Mathf.FloorToInt(obstacleY - halfHeight);
-				int maxY = Mathf.CeilToInt(obstacleY + halfHeight);
-
-				// Clamp to grid boundaries
-				minX = Mathf.Max(0, minX);
-				maxX = Mathf.Min(currentSize - 1, maxX);
-				minY = Mathf.Max(0, minY);
-				maxY = Mathf.Min(currentSize - 1, maxY);
-
-				// Mark cells inside the rectangle as obstacles
-				for (int i = minX; i <= maxX; i++)
-				{
-					for (int j = minY; j <= maxY; j++)
-					{
-						obstacles[GridUtils.IX(i, j, currentSize)] = true;
-					}
-				}
-				break;
+				return x > (centerX - halfWidth) && x < (centerX + halfWidth) &&
+					   y > (centerY - halfHeight) && y < (centerY + halfHeight);
 
 			case ObstacleShape.Airfoil:
-				// Define parameters for airfoil
-				float chord = 2 * obstacleWidth * currentSize; // Use width param for chord length
-				float thickness = 0.15f; // 15% thickness (NACA 0015)
+				// Approximate NACA 0015 airfoil shape
+				float chord = 2 * obstacleWidth * currentSize;
+				float thickness = 0.15f;
+				float normX = (x - centerX + chord / 2) / chord;
+				float normY = (y - centerY) / chord;
 
-				// Mark cells inside  airfoil as obstacles
-				for (int i = 0; i < currentSize; i++)
-				{
-					for (int j = 0; j < currentSize; j++)
-					{
-						// Convert grid coordinates to airfoil coordinates
-						// x goes from 0 to chord length, centered at obstacleX
-						float x = (i - obstacleX + chord / 2) / chord;
-						// y is centered at obstacleY
-						float y = (j - obstacleY) / chord;
+				if (normX < 0 || normX > 1 || Math.Abs(normY) > thickness)
+					return false;
 
-						// Only process points that might be in airfoil bounds
-						if (x >= 0 && x <= 1 && Math.Abs(y) < thickness)
-						{
-							// NACA 0015 airfoil equation
-							double halfThickness = 5 * thickness * (0.2969 * Math.Sqrt(x) - 0.1260 * x - 0.3516 * x * x + 0.2843 * x * x * x - 0.1015 * x * x * x * x);
+				float halfThickness = 5 * thickness * (0.2969f * Mathf.Sqrt(normX) - 0.1260f * normX -
+								   0.3516f * normX * normX + 0.2843f * normX * normX * normX -
+								   0.1015f * normX * normX * normX * normX);
 
-							// Check if point is inside airfoil
-							if (Math.Abs(y) <= halfThickness)
-							{
-								obstacles[GridUtils.IX(i, j, currentSize)] = true;
-							}
-						}
-					}
-				}
-				break;
+				return Math.Abs(normY) <= halfThickness;
+
+			default:
+				return false;
 		}
 	}
+
 	void Update()
 	{
 		elapsedTime += Time.deltaTime;
@@ -647,39 +650,6 @@ public class FluidSimulation : MonoBehaviour
 		}
 	}
 
-	/*void SaveSimulationData(int runID, int timeStep)
-	{ 
-		using (var connection = new SqliteConnection("URI=file:fluid_simulation.db"))
-		{
-			connection.Open();
-			using (var command = connection.CreateCommand())
-			{
-				for (int i = 0; i < currentSize; i++)
-				{
-					for (int j = 0; j < currentSize; j++)
-					{
-						int cellIndex = GridUtils.IX(i, j, currentSize);
-
-						command.CommandText = "INSERT INTO SimulationData (RunID, TimeStep, CellX, CellY, Density, VelocityX, VelocityY, Pressure) " +
-											  "VALUES (@runID, @timeStep, @x, @y, @density, @velocityX, @velocityY, @pressure)";
-
-						command.Parameters.Clear();
-						command.Parameters.AddWithValue("@runID", runID);
-						command.Parameters.AddWithValue("@timeStep", timeStep);
-						command.Parameters.AddWithValue("@x", i);
-						command.Parameters.AddWithValue("@y", j);
-						command.Parameters.AddWithValue("@density", density[cellIndex]);
-						command.Parameters.AddWithValue("@velocityX", velocityX[cellIndex]);
-						command.Parameters.AddWithValue("@velocityY", velocityY[cellIndex]);
-						command.Parameters.AddWithValue("@pressure", pressure[cellIndex]);
-
-						command.ExecuteNonQuery();
-					}
-				}
-			}
-		}
-	}*/
-
 	void UpdateVisualization()
 	{
 		Color[] colours = new Color[currentSize * currentSize];
@@ -713,11 +683,13 @@ public class FluidSimulation : MonoBehaviour
 			}
 		}
 
-		// colour change over time?
-		/*
-		float cycle = Mathf.PingPong(elapsedTime * 0.1f, 1f);
-		fluidcolour = Color.Lerp(Color.magenta, Color.cyan, cycle);
-		*/
+
+		// colour change over time
+		if (useLerp != false)
+		{
+			float cycle = Mathf.PingPong(elapsedTime * 0.1f, 1f);
+			fluidcolour = Color.Lerp(startColor, endColor, cycle);
+		}
 
 		try
 		{
