@@ -188,7 +188,7 @@ public class FluidSimulation : MonoBehaviour
 			colourGradient.SetKeys(colourKeys, alphaKeys);
 		}
 
-		sql_test.SaveSimRunParams(
+		SQL.SaveSimRunParams(
 		 size, diffusion, viscosity, timeStep,
 		 enableCustomSource, sourceStrength, sourcePositionX, sourcePositionY,
 		 enableObstacle, obstacleShape.ToString(), obstaclePositionX, obstaclePositionY,
@@ -357,7 +357,7 @@ public class FluidSimulation : MonoBehaviour
 				float normX = (x - centerX + chord / 2) / chord;
 				float normY = (y - centerY) / chord;
 
-				if (normX < 0 || normX > 1 || Math.Abs(normY) > thickness)
+				if (normX < 0 || normX > 1 || Math.Abs(normY) > thickness) 
 					return false;
 
 				float halfThickness = 5 * thickness * (0.2969f * Mathf.Sqrt(normX) - 0.1260f * normX -
@@ -505,9 +505,6 @@ public class FluidSimulation : MonoBehaviour
 		{
 			EnforceObstacleBoundaries();
 		}
-
-		/*SaveSimulationData(currentRunID, currentStep);
-		currentStep++;*/
 	}
 
 	void EnforceObstacleBoundaries()
@@ -597,8 +594,6 @@ public class FluidSimulation : MonoBehaviour
 		}
 	}
 
-
-
 	void VelocityStep(float dt, float visc)
 	{
 		Diffuse(1, velocityX0, velocityX, visc, dt);
@@ -618,6 +613,7 @@ public class FluidSimulation : MonoBehaviour
 		Diffuse(0, densityTemp, density, diff, dt);
 		AdvectWithJobs(0, density, densityTemp, velocityX, velocityY, dt);
 	}
+
 	void AddDensity(float x, float y, float amount)
 	{
 		int i = Mathf.Clamp((int)x, 0, currentSize - 1);
@@ -682,7 +678,6 @@ public class FluidSimulation : MonoBehaviour
 				gradientTimes[i] = colorKeys[i].time;
 			}
 		}
-
 
 		// colour change over time
 		if (useLerp != false)
@@ -916,6 +911,7 @@ public class FluidSimulation : MonoBehaviour
 			streamlineBuffersInitialized = false;
 		}
 	}
+
 	void ResetJobBuffers()
 	{
 		if (jobBuffersInitialized)
@@ -1902,5 +1898,26 @@ public class FluidSimulation : MonoBehaviour
 			float t = (time - gradientTimes[index]) / (gradientTimes[index + 1] - gradientTimes[index]);
 			return Color.Lerp(gradientColors[index], gradientColors[index + 1], t);
 		}
+	}
+
+	public void SaveCurrentConfiguration()
+	{
+		SQL.SaveSimRunParams(
+			size,
+			diffusion,
+			viscosity,
+			timeStep,
+			enableCustomSource,
+			sourceStrength,
+			sourcePositionX,
+			sourcePositionY,
+			enableObstacle,
+			obstacleShape.ToString(),
+			obstaclePositionX,
+			obstaclePositionY,
+			obstacleRadius,
+			obstacleWidth,
+			obstacleHeight
+		);
 	}
 }

@@ -5,6 +5,7 @@
             <ui:Label tabindex="-1" text="Main Menu" parse-escape-sequences="true" display-tooltip-when-elided="true" style="align-items: center; justify-content: flex-start; align-self: center; -unity-text-align: middle-left; height: -226px; font-size: 70px; -unity-font-style: bold; background-color: rgba(0, 0, 0, 0);" />
             <ui:Button text="Enter" parse-escape-sequences="true" display-tooltip-when-elided="true" name="EnterButton" class="unity-button" />
             <ui:Button text="Quit" parse-escape-sequences="true" display-tooltip-when-elided="true" name="QuitButton" class="unity-button" />
+            <ui:Button text="Save" parse-escape-sequences="true" display-tooltip-when-elided="true" name="SaveConfigButton" class="unity-button" style="background-color: rgb(255, 221, 0);" />
         </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>
