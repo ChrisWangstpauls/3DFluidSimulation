@@ -357,7 +357,7 @@ public class FluidSimulation : MonoBehaviour
 				float normX = (x - centerX + chord / 2) / chord;
 				float normY = (y - centerY) / chord;
 
-				if (normX < 0 || normX > 1 || Math.Abs(normY) > thickness) 
+				if (normX < 0 || normX > 1 || Math.Abs(normY) > thickness)
 					return false;
 
 				float halfThickness = 5 * thickness * (0.2969f * Mathf.Sqrt(normX) - 0.1260f * normX -
