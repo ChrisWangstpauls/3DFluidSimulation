@@ -134,8 +134,9 @@ public class FluidSimulation : MonoBehaviour
 	private NativeArray<bool> jobObstacles;
 	private bool jobBuffersInitialized = false;
 
-	private int currentStep;
-	private int currentRunID;
+	private int loggingInterval = 10; // Log every 10 frames
+	private int frameCount = 0;
+	private int currentStep = 0;
 
 	void OnValidate()
 	{
@@ -505,6 +506,41 @@ public class FluidSimulation : MonoBehaviour
 		{
 			EnforceObstacleBoundaries();
 		}
+
+		frameCount++;
+		if (frameCount % loggingInterval == 0)
+		{
+			float avgDensity = CalculateAverageDensity();
+			//float maxVelocity = CalculateMaxVelocityMagnitude();
+
+			SQL.LogRuntimeMetrics(
+				currentStep,
+				avgDensity,
+				sourcePositionX,
+				sourcePositionY,
+				sourceStrength,
+				enableObstacle
+			);
+			currentStep++;
+		}
+	}
+
+	private float CalculateAverageDensity()
+	{
+		float sum = 0;
+		foreach (float d in density) sum += d;
+		return sum / density.Length;
+	}
+
+	private float CalculateMaxVelocityMagnitude()
+	{
+		float max = 0;
+		for (int i = 0; i < velocityX.Length; i++)
+		{
+			float mag = Mathf.Sqrt(velocityX[i] * velocityX[i] + velocityY[i] * velocityY[i]);
+			if (mag > max) max = mag;
+		}
+		return max;
 	}
 
 	void EnforceObstacleBoundaries()

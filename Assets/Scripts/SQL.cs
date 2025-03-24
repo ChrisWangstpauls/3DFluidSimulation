@@ -52,6 +52,38 @@ public class SQL : MonoBehaviour
 		}
 	}
 
+	public static void LogRuntimeMetrics(
+		int step,
+		float avgDensity,
+		float sourceX,
+		float sourceY,
+		float sourceStrength,
+		bool obstacleEnabled
+	)
+	{
+		using (var conn = new SqliteConnection("URI=file:C:\\Users\\chris\\My project (2)\\test.db"))
+		{
+			conn.Open();
+			using (var cmd = conn.CreateCommand())
+			{
+				cmd.CommandText = @"
+                INSERT INTO RuntimeMetrics 
+                (Step, AverageDensity, CurrentSourceX, CurrentSourceY, CurrentSourceStrength, ObstaclePresent)
+                VALUES 
+                (@Step, @AvgDensity, @SourceX, @SourceY, @SourceStrength, @ObstacleEnabled)";
+
+				cmd.Parameters.AddWithValue("@Step", step);
+				cmd.Parameters.AddWithValue("@AvgDensity", avgDensity);
+				cmd.Parameters.AddWithValue("@SourceX", sourceX);
+				cmd.Parameters.AddWithValue("@SourceY", sourceY);
+				cmd.Parameters.AddWithValue("@SourceStrength", sourceStrength);
+				cmd.Parameters.AddWithValue("@ObstacleEnabled", obstacleEnabled ? 1 : 0);
+
+				cmd.ExecuteNonQuery();
+			}
+			conn.Close();
+		}
+	}
 }
 
 
