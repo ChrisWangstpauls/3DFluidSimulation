@@ -12,6 +12,13 @@ using System.Text.RegularExpressions;
 
 public class FluidSimulation : MonoBehaviour
 {
+	[Header("Runtime Logging Settings")]
+	[Tooltip("Enable real-time metrics logging to SQLite")]
+	[SerializeField] private bool _enableRuntimeLogging = true;
+
+	[Tooltip("How often to log data (in simulation steps)")]
+	[SerializeField] private int _loggingInterval = 10;
+
 	[Header("Simulation Parameters")]
 	[Range(32, 512)]
 	public int size = 128;
@@ -24,6 +31,7 @@ public class FluidSimulation : MonoBehaviour
 	public float timeStep = 0.1f;
 	public bool autoAdjustParameters = true;
 	public bool applyTurbulentNoise = false;
+	public enum ColorMode { SingleColor, Gradient, DensityBased, PressureBased, Streamlines }
 
 	[Header("Customizable Source")]
 	public bool enableCustomSource = false;
@@ -44,9 +52,11 @@ public class FluidSimulation : MonoBehaviour
 	[Range(0f, 1f)]
 	public float sourcePositionY = 0.5f; // Normalized position (0-1)
 	public bool moveSourceWithMouse = false;
-	public KeyCode sourcePositionKey = KeyCode.LeftShift; // Hold this key to position source with mouse
+	public KeyCode sourcePositionKey = KeyCode.LeftShift; // Hold key to position source with mouse
+	public bool visualizeSourcePosition = true;
+	public Color sourcePositionColor = Color.yellow;
 
-	[Header("Visualization")]
+	[Header("Single Colour Visualization")]
 	public Color fluidcolour = Color.white;
 	[Range(0f, 1f)]
 	public float colourIntensity = 1f;
@@ -54,17 +64,6 @@ public class FluidSimulation : MonoBehaviour
 	public bool useLerp = false;
 	public Color startColor = Color.white;
 	public Color endColor = Color.white;
-
-	[Header("Streamline Visualization")]
-	public bool showStreamlines = false;
-	[Range(1f, 5f)]
-	public int streamlineDensity = 4; // Controls how many cells are skipped
-	[Range(1f, 10f)]
-	public float streamlineScale = 1.0f; // Scales the length of the lines
-	public Color streamlineColor = Color.white;
-	[Range(0.1f, 3f)]
-	public float streamlineThickness = 1.0f;
-	private Texture2D streamlineTexture;
 
 	[Header("Pressure Visualization")]
 	public Color lowPressureColor = Color.blue;
@@ -74,6 +73,27 @@ public class FluidSimulation : MonoBehaviour
 	public float lowPressureThreshold = -50f;
 	[Range(-0f, 1f)]
 	public float highPressureThreshold = 50f;
+
+	[Header("Density Settings")]
+	public ColorMode colorMode = ColorMode.SingleColor;
+	public Color lowDensityColor = Color.blue;
+	public Color mediumDensityColor = Color.green;
+	public Color highDensityColor = Color.red;
+	[Range(0f, 500f)]
+	public float mediumDensityThreshold = 50f;
+	[Range(0f, 1000f)]
+	public float highDensityThreshold = 200f;
+
+	[Header("Streamline Visualization")]
+	public bool showStreamlines = false;
+	[Range(1f, 5f)]
+	public int streamlineDensity = 4; // Controls how many cells are skipped
+	[Range(1f, 10f)]
+	public float streamlineScale = 1.0f; // Scales length of the lines
+	public Color streamlineColor = Color.white;
+	[Range(0.1f, 3f)]
+	public float streamlineThickness = 1.0f;
+	private Texture2D streamlineTexture;
 
 	[Header("Obstacle Settings")]
 	public bool enableObstacle = true;
@@ -90,22 +110,6 @@ public class FluidSimulation : MonoBehaviour
 	[Range(0.01f, 0.5f)]
 	public float obstacleHeight = 0.2f;
 	public Color obstacleColor = Color.gray;
-
-	private NativeArray<float4> streamlineData;
-	private bool streamlineBuffersInitialized = false;
-
-	public enum ColorMode { SingleColor, Gradient, DensityBased, PressureBased, Streamlines }
-	public ColorMode colorMode = ColorMode.SingleColor;
-	public Color lowDensityColor = Color.blue;
-	public Color mediumDensityColor = Color.green;
-	public Color highDensityColor = Color.red;
-	[Range(0f, 500f)]
-	public float mediumDensityThreshold = 50f;
-	[Range(0f, 1000f)]
-	public float highDensityThreshold = 200f;
-
-	public bool visualizeSourcePosition = true;
-	public Color sourcePositionColor = Color.yellow;
 
 	private float[] density;
 	private float[] velocityX;
@@ -129,13 +133,13 @@ public class FluidSimulation : MonoBehaviour
 
 	private bool[] obstacles;
 
+	private NativeArray<float4> streamlineData;
+	private bool streamlineBuffersInitialized = false;
+
 	private NativeArray<float> jobBuffer1;
 	private NativeArray<float> jobBuffer2;
 	private NativeArray<bool> jobObstacles;
 	private bool jobBuffersInitialized = false;
-
-	private int loggingInterval = 10; // Log every 10 frames
-	private int frameCount = 0;
 	private int currentStep = 0;
 
 	void OnValidate()
@@ -507,40 +511,38 @@ public class FluidSimulation : MonoBehaviour
 			EnforceObstacleBoundaries();
 		}
 
-		frameCount++;
-		if (frameCount % loggingInterval == 0)
-		{
-			float avgDensity = CalculateAverageDensity();
-			//float maxVelocity = CalculateMaxVelocityMagnitude();
 
-			SQL.LogRuntimeMetrics(
-				currentStep,
-				avgDensity,
-				sourcePositionX,
-				sourcePositionY,
-				sourceStrength,
-				enableObstacle
-			);
-			currentStep++;
+		if (_enableRuntimeLogging && currentStep % _loggingInterval == 0)
+		{
+			LogCurrentMetrics();
 		}
 	}
 
-	private float CalculateAverageDensity()
+	private void LogCurrentMetrics()
 	{
-		float sum = 0;
-		foreach (float d in density) sum += d;
-		return sum / density.Length;
-	}
+		float avgDensity = 0f;
+		float maxVelocity = 0f;
 
-	private float CalculateMaxVelocityMagnitude()
-	{
-		float max = 0;
+		// Calculate metrics
+		foreach (float d in density) avgDensity += d;
+		avgDensity /= density.Length;
+
 		for (int i = 0; i < velocityX.Length; i++)
 		{
 			float mag = Mathf.Sqrt(velocityX[i] * velocityX[i] + velocityY[i] * velocityY[i]);
-			if (mag > max) max = mag;
+			if (mag > maxVelocity) maxVelocity = mag;
 		}
-		return max;
+
+		// Log to SQL
+		SQL.LogRuntimeMetrics(
+			currentStep,
+			avgDensity,
+			maxVelocity,
+			sourcePositionX,
+			sourcePositionY,
+			sourceStrength,
+			enableObstacle
+		);
 	}
 
 	void EnforceObstacleBoundaries()
@@ -754,11 +756,10 @@ public class FluidSimulation : MonoBehaviour
 				neutralPressureColor = neutralPressureColor,
 				highPressureColor = highPressureColor,
 				lowPressureThreshold = lowPressureThreshold,
-				highPressureThreshold = highPressureThreshold,
+				highPressureThreshold = highPressureThreshold
 			};
 
 			// Schedule the job with one item per cell
-
 			//visualizationJob.pressure = nativePressure;
 			JobHandle jobHandle = visualizationJob.Schedule(currentSize * currentSize, 64);
 
