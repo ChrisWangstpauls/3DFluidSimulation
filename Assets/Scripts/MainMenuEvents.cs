@@ -42,26 +42,26 @@ public class MainMenuEvents : MonoBehaviour
 		}
 
 		_saveConfigButton = _document.rootVisualElement.Q("SaveConfigButton") as Button;
-		_saveConfigButton.RegisterCallback<ClickEvent>(OnSaveConfigButtonClick);
+		if (_button != null)
+		{
+			_saveConfigButton.RegisterCallback<ClickEvent>(OnSaveConfigButtonClick);
+		}
+		else
+		{
+			Debug.LogError("SaveConfigButton not found in UI Document!");
+		}
 	}
 	private void Update()
 	{
 		if (Input.GetKeyDown(Exit))
 		{
-			if (_document.rootVisualElement.style.display == DisplayStyle.None)
-			{
-				_document.rootVisualElement.style.display = DisplayStyle.Flex;
-			}
-			else
-			{
-				_document.rootVisualElement.style.display = DisplayStyle.None;
-			}
+			bool wasVisible = _document.rootVisualElement.style.display == DisplayStyle.Flex;
+			_document.rootVisualElement.style.display = wasVisible ? DisplayStyle.None : DisplayStyle.Flex;
 		}
 	}
 
 	private void OnEnterButtonClick(ClickEvent evt)
 	{
-		// Hides menu
 		_document.rootVisualElement.style.display = DisplayStyle.None;
 	}
 

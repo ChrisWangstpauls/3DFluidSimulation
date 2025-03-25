@@ -21,6 +21,7 @@ public class FluidSimulation : MonoBehaviour
 	[SerializeField] private int _loggingInterval = 10;
 
 	[Header("Simulation Parameters")]
+	public bool paused = false;
 	[Range(32, 512)]
 	public int size = 128;
 	[Tooltip("Physical size of the simulation area")]
@@ -146,7 +147,14 @@ public class FluidSimulation : MonoBehaviour
 
 	private float _smoothedFPS;
 	private const float SMOOTH_FACTOR = 0.9f;
+	private Vector2 _prevMouseGridPos;
+	private bool _isFirstDragFrame = true;
 
+	public void SetPaused(bool Paused)
+	{
+		paused = Paused;
+		Debug.Log($"Simulation paused: {paused}");
+	}
 	void OnValidate()
 	{
 		// Update resolution when parameters change in editor
@@ -175,8 +183,10 @@ public class FluidSimulation : MonoBehaviour
 		}
 
 	}
+
 	void Start()
 	{
+
 		ResetSimulation();
 		SetupObstacles();
 
@@ -198,12 +208,12 @@ public class FluidSimulation : MonoBehaviour
 			colourGradient.SetKeys(colourKeys, alphaKeys);
 		}
 
-		_currentRunID = SQL.SaveSimRunParams(
+			_currentRunID = SQL.SaveSimRunParams(
 			size, diffusion, viscosity, timeStep,
 			enableCustomSource, sourceStrength, sourcePositionX, sourcePositionY,
 			enableObstacle, obstacleShape.ToString(), obstaclePositionX, obstaclePositionY,
 			obstacleRadius, obstacleWidth, obstacleHeight
-		);
+			);
 	}
 
 	void ResetSimulation()
@@ -272,14 +282,16 @@ public class FluidSimulation : MonoBehaviour
 			quadCorners[i] = quad.transform.TransformPoint(quadCorners[i]);
 		}
 
+#if UNITY_EDITOR
 		Debug.Log($"Fluid simulation reset with resolution: {currentSize}x{currentSize}, cell size: {cellSize}");
-		string logMessage = "Fluid simulation reset with resolution: 128x128, cell size: 0.0078125";
+#endif
+		string logMessage = $"Fluid simulation reset with resolution: {currentSize}x{currentSize}, cell size: {cellSize}";
 		Match match = Regex.Match(logMessage, @"resolution:\s*(\d+)x(\d+),\s*cell size:\s*([\d.]+)");
 		if (match.Success)
 		{
-			int resolutionX = int.Parse(match.Groups[1].Value);
-			int resolutionY = int.Parse(match.Groups[2].Value);
-			float cellSize = float.Parse(match.Groups[3].Value);
+			int loggedSizeX = int.Parse(match.Groups[1].Value);
+			int loggedSizeY = int.Parse(match.Groups[2].Value);
+			// Compare with currentSize/cellSize to detect mismatches
 		}
 
 		// Initialize streamline texture if needed
@@ -383,6 +395,8 @@ public class FluidSimulation : MonoBehaviour
 
 	void Update()
 	{
+		if (paused) return;
+
 		elapsedTime += Time.deltaTime;
 
 		// Handle source positioning with mouse if enabled
@@ -399,21 +413,36 @@ public class FluidSimulation : MonoBehaviour
 			UpdateCustomSource();
 		}
 
-		// Add forces based on mouse input (only when not positioning the source)
+		// Get current mouse position in grid coordinates
+		Vector2 currentMousePos = GetMousePositionInGrid();
+
+		// Process mouse drag input
 		if (Input.GetMouseButton(0) && !(moveSourceWithMouse && Input.GetKey(sourcePositionKey)))
 		{
-			Vector2 mousePos = GetMousePositionInGrid();
-			if (mousePos.x >= 0 && mousePos.x < currentSize && mousePos.y >= 0 && mousePos.y < currentSize)
+			if (!_isFirstDragFrame)
 			{
-				// Scale density and velocity with resolution
-				float densityAmount = 100f * resolutionMultiplier;
-				float velocityScale = 10f * resolutionMultiplier;
+				// Calculate velocity based on position delta
+				Vector2 mouseDelta = currentMousePos - _prevMouseGridPos;
+				Vector2 mouseVelocity = mouseDelta / Time.deltaTime;
 
-				AddDensity(mousePos.x, mousePos.y, densityAmount);
-				AddVelocity(mousePos.x, mousePos.y,
-					Input.GetAxis("Mouse X") * velocityScale,
-					Input.GetAxis("Mouse Y") * velocityScale);
+				// Calculate force direction and magnitude
+				float forceMagnitude = mouseDelta.magnitude * resolutionMultiplier;
+				Vector2 forceDirection = mouseDelta.normalized;
+
+				// Apply force with non-linear response curve
+				float scaledForce = Mathf.Pow(forceMagnitude, 1.5f) * 0.8f;
+				AddForceToArea(
+					currentMousePos,
+					forceDirection * scaledForce,
+					Mathf.Clamp(forceMagnitude * 0.5f, 2f, 10f)
+				);
 			}
+			_isFirstDragFrame = false;
+			_prevMouseGridPos = currentMousePos;
+		}
+		else
+		{
+			_isFirstDragFrame = true;
 		}
 
 		Simulate();
@@ -426,6 +455,39 @@ public class FluidSimulation : MonoBehaviour
 		}
 	}
 
+	private void AddForceToArea(Vector2 center, Vector2 force, float radius)
+	{
+		int minX = Mathf.Clamp((int)(center.x - radius), 0, currentSize - 1);
+		int maxX = Mathf.Clamp((int)(center.x + radius), 0, currentSize - 1);
+		int minY = Mathf.Clamp((int)(center.y - radius), 0, currentSize - 1);
+		int maxY = Mathf.Clamp((int)(center.y + radius), 0, currentSize - 1);
+
+		for (int x = minX; x <= maxX; x++)
+		{
+			for (int y = minY; y <= maxY; y++)
+			{
+				Vector2 cellPos = new Vector2(x, y);
+				float distance = Vector2.Distance(cellPos, center);
+
+				if (distance <= radius)
+				{
+					float falloff = 1 - (distance / radius);
+					int index = GridUtils.IX(x, y, currentSize);
+
+					// Apply force with smooth falloff
+					velocityX[index] += force.x * falloff;
+					velocityY[index] += force.y * falloff;
+
+					// Add density at the center
+					if (distance < radius * 0.3f)
+					{
+						density[index] += sourceStrength * falloff;
+					}
+				}
+			}
+		}
+	}
+
 	void UpdateCustomSource()
 	{
 		// Convert normalized position (0-1) to grid coordinates
@@ -433,13 +495,10 @@ public class FluidSimulation : MonoBehaviour
 		float sourceY = sourcePositionY * currentSize;
 
 		// Calculate effective strength for pulsing if enabled
-		float effectiveStrength = sourceStrength;
-		if (sourcePulsing)
-		{
-			// Create pulsing effect using sine wave
-			float pulseScale = Mathf.Abs(Mathf.Sin(elapsedTime * sourcePulseRate * Mathf.PI));
-			effectiveStrength *= pulseScale;
-		}
+		float pulseScale = sourcePulsing
+			? Mathf.Abs(Mathf.Sin(elapsedTime * sourcePulseRate * Mathf.PI))
+			: 1f;
+		float effectiveStrength = sourceStrength * pulseScale;
 
 		// Adjust strength based on resolution
 		effectiveStrength *= resolutionMultiplier;
@@ -541,13 +600,16 @@ public class FluidSimulation : MonoBehaviour
 		}
 
 		// Log to SQL
-		SQL.LogRuntimeMetrics(
+		if (maxVelocity != 0 && avgDensity != 0)
+		{
+			SQL.LogRuntimeMetrics(
 			_currentRunID,
 			currentStep,
 			avgDensity,
 			maxVelocity,
 			frameRate
 		);
+		}
 	}
 
 	private float CalculateFrameRate()
@@ -568,8 +630,8 @@ public class FluidSimulation : MonoBehaviour
 				int idx = GridUtils.IX(i, j, currentSize);
 				if (obstacles[idx])
 				{
-					velocityX[idx] = 0;
-					velocityY[idx] = 0;
+					velocityX[idx] = obstacles[idx] ? 0 : velocityX[idx];
+					velocityY[idx] = obstacles[idx] ? 0 : velocityY[idx];
 
 					ApplyDragNearObstacle(i, j);
 				}
@@ -1951,7 +2013,7 @@ public class FluidSimulation : MonoBehaviour
 
 	public void SaveCurrentConfiguration()
 	{
-		SQL.SaveSimRunParams(
+			SQL.SaveSimRunParams(
 			size,
 			diffusion,
 			viscosity,
@@ -1967,6 +2029,6 @@ public class FluidSimulation : MonoBehaviour
 			obstacleRadius,
 			obstacleWidth,
 			obstacleHeight
-		);
+			);
 	}
 }
