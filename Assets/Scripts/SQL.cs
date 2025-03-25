@@ -109,9 +109,9 @@ public class SQL : MonoBehaviour
 			{
 				cmd.CommandText = @"
                 INSERT INTO RuntimeMetrics 
-                (RunID, AverageDensity, MaxVelocityMagnitude)
+                (RunID, AverageDensity, MaxVelocityMagnitude, FrameRate)
                 VALUES 
-                (@runId, @avgDensity, @maxVelocity)";
+                (@runId, @avgDensity, @maxVelocity, @frameRate)";
 
 				cmd.Parameters.AddRange(new[] {
 				new SqliteParameter("@runId", runId),

@@ -144,6 +144,9 @@ public class FluidSimulation : MonoBehaviour
 	private int currentStep = 0;
 	private int _currentRunID = -1;
 
+	private float _smoothedFPS;
+	private const float SMOOTH_FACTOR = 0.9f;
+
 	void OnValidate()
 	{
 		// Update resolution when parameters change in editor
@@ -513,7 +516,6 @@ public class FluidSimulation : MonoBehaviour
 			EnforceObstacleBoundaries();
 		}
 
-
 		if (_enableRuntimeLogging && currentStep % _loggingInterval == 0)
 		{
 			LogCurrentMetrics();
@@ -550,9 +552,10 @@ public class FluidSimulation : MonoBehaviour
 
 	private float CalculateFrameRate()
 	{
-		float delta = 0.0f;
-		delta += (Time.unscaledDeltaTime - delta) * 0.1f;
-		return 1.0f / delta;
+		float instantFPS = 1.0f / Time.unscaledDeltaTime;
+		_smoothedFPS = SMOOTH_FACTOR * _smoothedFPS +
+					   (1 - SMOOTH_FACTOR) * instantFPS;
+		return _smoothedFPS;
 	}
 
 	void EnforceObstacleBoundaries()
@@ -568,7 +571,6 @@ public class FluidSimulation : MonoBehaviour
 					velocityX[idx] = 0;
 					velocityY[idx] = 0;
 
-					// This makes the simulation more realistic
 					ApplyDragNearObstacle(i, j);
 				}
 			}
