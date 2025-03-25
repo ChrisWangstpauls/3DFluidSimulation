@@ -550,9 +550,9 @@ public class FluidSimulation : MonoBehaviour
 
 	private float CalculateFrameRate()
 	{
-		// Over 100 frames
-		float delta = Time.unscaledDeltaTime;
-		return delta > 0.0001f ? Mathf.Clamp(1.0f / delta, 0f, 1000f) : 0f;
+		float delta = 0.0f;
+		delta += (Time.unscaledDeltaTime - delta) * 0.1f;
+		return 1.0f / delta;
 	}
 
 	void EnforceObstacleBoundaries()
