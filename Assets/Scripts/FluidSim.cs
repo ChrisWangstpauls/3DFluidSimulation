@@ -9,6 +9,7 @@ using System.Data;
 using Mono.Data.Sqlite;
 using System;
 using System.Text.RegularExpressions;
+using UnityEngine.Playables;
 
 public class FluidSimulation : MonoBehaviour
 {
@@ -141,6 +142,7 @@ public class FluidSimulation : MonoBehaviour
 	private NativeArray<bool> jobObstacles;
 	private bool jobBuffersInitialized = false;
 	private int currentStep = 0;
+	private int _currentRunID = -1;
 
 	void OnValidate()
 	{
@@ -193,12 +195,12 @@ public class FluidSimulation : MonoBehaviour
 			colourGradient.SetKeys(colourKeys, alphaKeys);
 		}
 
-		SQL.SaveSimRunParams(
-		 size, diffusion, viscosity, timeStep,
-		 enableCustomSource, sourceStrength, sourcePositionX, sourcePositionY,
-		 enableObstacle, obstacleShape.ToString(), obstaclePositionX, obstaclePositionY,
-		 obstacleRadius, obstacleWidth, obstacleHeight
-		 );
+		_currentRunID = SQL.SaveSimRunParams(
+			size, diffusion, viscosity, timeStep,
+			enableCustomSource, sourceStrength, sourcePositionX, sourcePositionY,
+			enableObstacle, obstacleShape.ToString(), obstaclePositionX, obstaclePositionY,
+			obstacleRadius, obstacleWidth, obstacleHeight
+		);
 	}
 
 	void ResetSimulation()
@@ -520,8 +522,11 @@ public class FluidSimulation : MonoBehaviour
 
 	private void LogCurrentMetrics()
 	{
+		if (_currentRunID == -1) return;
+
 		float avgDensity = 0f;
 		float maxVelocity = 0f;
+		float frameRate = CalculateFrameRate();
 
 		// Calculate metrics
 		foreach (float d in density) avgDensity += d;
@@ -535,14 +540,19 @@ public class FluidSimulation : MonoBehaviour
 
 		// Log to SQL
 		SQL.LogRuntimeMetrics(
+			_currentRunID,
 			currentStep,
 			avgDensity,
 			maxVelocity,
-			sourcePositionX,
-			sourcePositionY,
-			sourceStrength,
-			enableObstacle
+			frameRate
 		);
+	}
+
+	private float CalculateFrameRate()
+	{
+		// Over 100 frames
+		float delta = Time.unscaledDeltaTime;
+		return delta > 0.0001f ? Mathf.Clamp(1.0f / delta, 0f, 1000f) : 0f;
 	}
 
 	void EnforceObstacleBoundaries()
