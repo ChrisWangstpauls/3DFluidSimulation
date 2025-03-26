@@ -181,7 +181,6 @@ public class FluidSimulation : MonoBehaviour
 		{
 			SetupObstacles();
 		}
-
 	}
 
 	void Start()
