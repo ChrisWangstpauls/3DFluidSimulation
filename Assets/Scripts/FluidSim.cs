@@ -160,7 +160,7 @@ public class FluidSimulation : MonoBehaviour
 		// Update resolution when parameters change in editor
 		if (previousSize != size || previousResolutionMultiplier != resolutionMultiplier)
 		{
-			// Only reinitialize if we've already started
+			// Only reinitialize if already started
 			if (fluidTexture != null)
 			{
 				ResetSimulation();
@@ -518,7 +518,7 @@ public class FluidSimulation : MonoBehaviour
 				// Only add density within radius
 				if (dist <= radiusInCells)
 				{
-					// Reduce strength as we get farther from center (linear falloff)
+					// Reduce strength as farther from center (linear falloff)
 					float falloff = 1.0f - (dist / radiusInCells);
 					AddDensity(i, j, effectiveStrength * falloff);
 
@@ -833,7 +833,6 @@ public class FluidSimulation : MonoBehaviour
 			};
 
 			// Schedule the job with one item per cell
-			//visualizationJob.pressure = nativePressure;
 			JobHandle jobHandle = visualizationJob.Schedule(currentSize * currentSize, 64);
 
 			// Wait for the job to complete
@@ -1035,8 +1034,6 @@ public class FluidSimulation : MonoBehaviour
 		// Reinitialize with new size
 		InitializeJobBuffers();
 	}
-
-	// Helper method to manually set the source position using grid coordinates
 
 	[BurstCompile]
 	public struct DiffuseJob : IJobParallelFor
@@ -1584,8 +1581,7 @@ public class FluidSimulation : MonoBehaviour
 
 	void PressureSolveWithJobs(NativeArray<float> p, NativeArray<float> div, NativeArray<bool> obstacles)
 	{
-		// Similar to LinearSolveWithJobs but specifically optimized for pressure calculation
-		// This would directly work with the native arrays without copying to/from managed arrays
+		// Similar to LinearSolveWithJobs but specifically for pressure calculation
 		float a = 1.0f;
 		float c = 6.0f;
 		int totalSize = p.Length;
@@ -1770,7 +1766,6 @@ public class FluidSimulation : MonoBehaviour
 		}
 	}
 
-	// Add a new method to draw line segments on the CPU after the job completes
 	private void DrawLineSegmentsToTexture(NativeArray<float4> lineSegments, Color[] textureColors)
 	{
 		for (int i = 0; i < lineSegments.Length; i++)
@@ -1780,7 +1775,7 @@ public class FluidSimulation : MonoBehaviour
 			// Skip invalid segments
 			if (segment.x < 0) continue;
 
-			// Draw each line segment using Bresenham's algorithm
+			// line segment using Bresenham's algorithm
 			DrawBresenhamLine(
 				(int)segment.x, (int)segment.y,
 				(int)math.round(segment.z), (int)math.round(segment.w),

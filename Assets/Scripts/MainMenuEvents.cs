@@ -1,7 +1,6 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
+
 public class MainMenuEvents : MonoBehaviour
 {
 	private UIDocument _document;
@@ -51,6 +50,7 @@ public class MainMenuEvents : MonoBehaviour
 			Debug.LogError("SaveConfigButton not found in UI Document!");
 		}
 	}
+
 	private void Update()
 	{
 		if (Input.GetKeyDown(Exit))
@@ -71,7 +71,6 @@ public class MainMenuEvents : MonoBehaviour
 		Application.Quit();
 		Debug.Log("Application.Quit() called");
 
-
 		//Temporary stop play mode in Unity editor
 #if UNITY_EDITOR
 		UnityEditor.EditorApplication.isPlaying = false;
@@ -87,12 +86,16 @@ public class MainMenuEvents : MonoBehaviour
 
 			if (fluidSimulation == null)
 			{
+#if UNITY_EDITOR
 				Debug.LogError("FluidSimulation reference is missing!");
+#endif
 				return;
 			}
 		}
 
 		fluidSimulation.SaveCurrentConfiguration();
+#if UNITY_EDITOR
 		Debug.Log("Parameters saved to SQL.");
+#endif
 	}
 }
