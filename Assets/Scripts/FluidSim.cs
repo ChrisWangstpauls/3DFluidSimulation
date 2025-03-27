@@ -4,12 +4,8 @@ using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Burst;
-using System.Collections;
-using System.Data;
-using Mono.Data.Sqlite;
 using System;
 using System.Text.RegularExpressions;
-using UnityEngine.Playables;
 
 public class FluidSimulation : MonoBehaviour
 {
@@ -185,7 +181,6 @@ public class FluidSimulation : MonoBehaviour
 
 	void Start()
 	{
-
 		ResetSimulation();
 		SetupObstacles();
 
@@ -759,6 +754,7 @@ public class FluidSimulation : MonoBehaviour
 
 	void UpdateVisualization()
 	{
+		//NativeArray initialisation
 		Color[] colours = new Color[currentSize * currentSize];
 		NativeArray<Color> nativeColors = new NativeArray<Color>(currentSize * currentSize, Allocator.TempJob);
 

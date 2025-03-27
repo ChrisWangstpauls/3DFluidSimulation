@@ -1,15 +1,6 @@
-using System.Collections;
-using System.Collections.Generic;
-using System.Data;
 using UnityEngine;
 using Mono.Data.Sqlite;
-
-using static FluidSimulation;
-using System.Data.Common;
-using System.Threading.Tasks;
 using System;
-using System.IO;
-using static Unity.Burst.Intrinsics.X86.Avx;
 
 public class SQL : MonoBehaviour
 {
@@ -51,7 +42,6 @@ public class SQL : MonoBehaviour
 	//		conn.Close();
 	//	}
 	//}
-
 
 	public static int SaveSimRunParams(int size, float diffusion, float viscosity, float timeStep,
 	   bool sourceEnabled, float sourceStrength, float sourceX, float sourceY,
@@ -103,7 +93,6 @@ public class SQL : MonoBehaviour
 			conn.Close();
 		}
 		return runId;
-
 	}
 
 	public static void LogRuntimeMetrics(
@@ -137,5 +126,3 @@ public class SQL : MonoBehaviour
 		}
 	}
 }
-
-
